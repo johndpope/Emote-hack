@@ -5,26 +5,55 @@ import torch
 import librosa
 from transformers import Wav2Vec2Processor, Wav2Vec2Model
 import soundfile as sf
+import torch.nn as nn
+
+# This is a dummy example of a neural network module that might take the concatenated frame features
+class AudioFeatureModel(nn.Module):
+    def __init__(self, input_size, output_size):
+        super(AudioFeatureModel, self).__init__()
+        self.fc = nn.Linear(input_size, output_size)
+
+    def forward(self, x):
+        return self.fc(x)
+    
 
 # Load the processor and model from HuggingFace Transformers
 processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
 model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h")
 
-# Function to read in audio file and extract features
-def extract_features(audio_path):
-    # Load the audio file
-    audio_input, sample_rate = sf.read(audio_path)
+def get_nearby_frames_features(A, f, m, n):
+    """
+    Concatenate feature vectors from nearby frames.
+    
+    Args:
+        A (torch.Tensor): Tensor of shape (num_frames, feature_dim) containing the feature vectors.
+        f (int): The current frame index.
+        m (int): The number of frames before the current frame to include.
+        n (int): The number of frames after the current frame to include.
+    
+    Returns:
+        torch.Tensor: The concatenated feature vector for frame f.
+    """
+    # Calculate start and end frame indices
+    start_frame = max(f - m, 0)
+    end_frame = min(f + n + 1, A.size(0))
+    
+    # Extract the nearby frames
+    nearby_frames = A[start_frame:end_frame]
+    
+    # Determine if we need to pad at the beginning
+    pad_front = max(0, m - f)
+    
+    # Determine if we need to pad at the end
+    pad_back = max(0, (f + n + 1) - A.size(0))
+    
+    # Apply padding if necessary
+    if pad_front > 0 or pad_back > 0:
+        padding = (pad_front, pad_back)
+        nearby_frames = torch.nn.functional.pad(nearby_frames, pad=padding, mode='constant', value=0)
 
-
-    # Process the raw audio input
-    input_values = processor(audio_input, return_tensors="pt", sampling_rate=sample_rate).input_values
-
-    # Retrieve features from Wav2Vec 2.0
-    with torch.no_grad():
-        hidden_states = model(input_values).last_hidden_state
-
-    return hidden_states.squeeze().numpy()
-
+    # Flatten the nearby frames into a single feature vector
+    return nearby_frames.flatten()
 
 
 # Set device for torch
@@ -38,43 +67,8 @@ model.eval()
 
 import numpy as np
 
-def get_nearby_frames_features(A, f, m, n):
-    """
-    Concatenate feature vectors from nearby frames.
-    
-    Args:
-    A (np.ndarray): An array of shape (num_frames, feature_dim) containing the feature vectors.
-    f (int): The current frame index.
-    m (int): The number of frames before the current frame to include.
-    n (int): The number of frames after the current frame to include.
-    
-    Returns:
-    np.ndarray: The concatenated feature vector for frame f.
-    """
-    # Initialize the feature vector with the current frame's features
-    nearby_frames_features = A[f]
-    
-    # Concatenate features from previous m frames
-    for i in range(1, m + 1):
-        if f - i < 0:
-            # If the index is out of bounds, you could either skip or use some form of padding
-            # Here we use zero padding
-            prev_features = np.zeros_like(A[f])
-        else:
-            prev_features = A[f - i]
-        nearby_frames_features = np.concatenate((prev_features, nearby_frames_features))
-    
-    # Concatenate features from next n frames
-    for i in range(1, n + 1):
-        if f + i >= len(A):
-            # If the index is out of bounds, you could either skip or use some form of padding
-            # Here we use zero padding
-            next_features = np.zeros_like(A[f])
-        else:
-            next_features = A[f + i]
-        nearby_frames_features = np.concatenate((nearby_frames_features, next_features))
-    
-    return nearby_frames_features
+
+
 
 
 def extract_features_from_mp4(video_path, model_name='facebook/wav2vec2-base-960h'):
@@ -155,26 +149,76 @@ video_path = 'M2Ohb0FAaJU_1.mp4'
 A = extract_features_from_mp4(video_path)
 print(A.shape)
 
-
-
-# Print the size of the features from each layer
-for i, feature in enumerate(A):
-    print(f"Size of features from layer {i}: {feature.size()}")
-
-
-
-
-# Example usage
-# A would be your array of feature vectors
-# f is the current frame index
-# m is the number of frames before f you want to include
-# n is the number of frames after f you want to include
-# Now let's get the concatenated features for frame 50 with 2 frames before and after
-f = 50
-m = 2
-n = 2
-
-# Ensure A is squeezed to remove the batch dimension if it's size 1
+# Ensure A is squeezed to remove the batch dimension if it's size 1 (otherwise -  Input tensor A should be 2D but has shape torch.Size([1, 629, 768]))
 A = A.squeeze(0) if A.size(0) == 1 else A
-nearby_frames_features = get_nearby_frames_features(A, f, m, n)
-print(nearby_frames_features.shape)  # This should be (feature_dim * (m + n + 1), )
+
+# Assuming A is a 2D tensor of shape [num_frames, feature_dim]
+num_frames, feature_dim = A.shape[0], A.shape[1]
+m, n = 2, 2  # Number of frames before and after
+input_size = feature_dim * (m + n + 1)  # Update input size accordingly
+output_size = 768  # Example output size (you may need to change this based on your task)
+
+
+def get_nearby_frames_features(A, f, m, n, feature_dim):
+    """
+    Concatenate feature vectors from nearby frames.
+    
+    Args:
+        A (torch.Tensor): Tensor of shape (num_frames, feature_dim) containing the feature vectors.
+        f (int): The current frame index.
+        m (int): The number of frames before the current frame to include.
+        n (int): The number of frames after the current frame to include.
+        feature_dim (int): The dimension of the feature vectors.
+    
+    Returns:
+        torch.Tensor: The concatenated feature vector for frame f.
+    """
+    assert A.dim() == 2, f"Input tensor A should be 2D but has shape {A.shape}"
+    assert A.size(1) == feature_dim, f"Feature dimension of A does not match feature_dim, got: {A.size(1)}, expected: {feature_dim}"
+
+    num_frames = A.size(0)
+    start_frame = max(f - m, 0)
+    end_frame = min(f + n + 1, num_frames)
+    nearby_frames_features = A[start_frame:end_frame].clone()
+
+    # Assert that nearby_frames_features is 2D
+    assert nearby_frames_features.dim() == 2, f"nearby_frames_features should be 2D but has shape {nearby_frames_features.shape}"
+
+    # Add padding if necessary
+    if f - m < 0:
+        front_padding = torch.zeros((m - f, feature_dim), device=A.device)
+        nearby_frames_features = torch.cat((front_padding, nearby_frames_features), dim=0)
+    if f + n + 1 > num_frames:
+        end_padding = torch.zeros((f + n + 1 - num_frames, feature_dim), device=A.device)
+        nearby_frames_features = torch.cat((nearby_frames_features, end_padding), dim=0)
+
+    # Assert that the final tensor is 2D before flattening
+    assert nearby_frames_features.dim() == 2, f"nearby_frames_features should be 2D but has shape {nearby_frames_features.shape} before flattening"
+
+    return nearby_frames_features.view(-1)  # Flatten the features
+
+
+# Create the model
+model = AudioFeatureModel(input_size, output_size).to(device)
+
+# Process all frames and get features
+all_features = []
+for f in range(num_frames):
+    # Get features for the current frame and its neighbors
+    nearby_frames_features = get_nearby_frames_features(A, f, m, n, feature_dim)
+    print(nearby_frames_features.shape)  # This should print the shape of the concatenated features
+
+    # Convert to PyTorch tensor and add batch dimension
+    frame_features = nearby_frames_features.unsqueeze(0).to(device)
+    
+    # Pass through the model
+    output = model(frame_features)
+    
+    # Store the output
+    all_features.append(output)
+
+# Convert list of tensors to a single tensor
+all_features = torch.cat(all_features, dim=0)
+print("all_features.shape: ", all_features.shape)  # Output shape: (num_frames, output_size)
+
+
