@@ -14,7 +14,7 @@ class VideoDataset(Dataset):
         self,
         img_size,
         img_scale=(1.0, 1.0),
-        img_ratio=(0.9, 1.0),
+        img_ratio=(1.0, 1.0),
         drop_ratio=0.1,
         data_meta_paths=["./data/celebvhq_info.json"],
         sample_margin=30,
@@ -38,30 +38,30 @@ class VideoDataset(Dataset):
 
         self.clip_image_processor = CLIPImageProcessor()
 
-        self.transform = transforms.Compose(
-            [
-                transforms.RandomResizedCrop(
-                    self.img_size,
-                    scale=self.img_scale,
-                    ratio=self.img_ratio,
-                    interpolation=transforms.InterpolationMode.BILINEAR,
-                ),
-                transforms.ToTensor(),
-                transforms.Normalize([0.5], [0.5]),
-            ]
-        )
+        # self.transform = transforms.Compose(
+        #     [
+        #         transforms.RandomResizedCrop(
+        #             self.img_size,
+        #             scale=self.img_scale,
+        #             ratio=self.img_ratio,
+        #             interpolation=transforms.InterpolationMode.BILINEAR,
+        #         ),
+        #         transforms.ToTensor(),
+        #         transforms.Normalize([0.5], [0.5]),
+        #     ]
+        # )
 
-        self.cond_transform = transforms.Compose(
-            [
-                transforms.RandomResizedCrop(
-                    self.img_size,
-                    scale=self.img_scale,
-                    ratio=self.img_ratio,
-                    interpolation=transforms.InterpolationMode.BILINEAR,
-                ),
-                transforms.ToTensor(),
-            ]
-        )
+        # self.cond_transform = transforms.Compose(
+        #     [
+        #         transforms.RandomResizedCrop(
+        #             self.img_size,
+        #             scale=self.img_scale,
+        #             ratio=self.img_ratio,
+        #             interpolation=transforms.InterpolationMode.BILINEAR,
+        #         ),
+        #         transforms.ToTensor(),
+        #     ]
+        # )
 
         self.drop_ratio = drop_ratio
 
@@ -72,7 +72,7 @@ class VideoDataset(Dataset):
 
     def __getitem__(self, index):
         video_meta = self.vid_meta[index]
-        video_path = video_meta["video_path"]
+        video_path = video_meta["ytb_id"] + ".mp4"
         kps_path = video_meta["kps_path"]
 
         video_reader = VideoReader(video_path)
