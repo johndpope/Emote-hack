@@ -6,6 +6,8 @@ import librosa
 from transformers import Wav2Vec2Processor, Wav2Vec2Model
 import soundfile as sf
 import torch.nn as nn
+import numpy as np
+
 
 # This is a dummy example of a neural network module that might take the concatenated frame features
 class AudioFeatureModel(nn.Module):
@@ -21,40 +23,6 @@ class AudioFeatureModel(nn.Module):
 processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
 model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h")
 
-def get_nearby_frames_features(A, f, m, n):
-    """
-    Concatenate feature vectors from nearby frames.
-    
-    Args:
-        A (torch.Tensor): Tensor of shape (num_frames, feature_dim) containing the feature vectors.
-        f (int): The current frame index.
-        m (int): The number of frames before the current frame to include.
-        n (int): The number of frames after the current frame to include.
-    
-    Returns:
-        torch.Tensor: The concatenated feature vector for frame f.
-    """
-    # Calculate start and end frame indices
-    start_frame = max(f - m, 0)
-    end_frame = min(f + n + 1, A.size(0))
-    
-    # Extract the nearby frames
-    nearby_frames = A[start_frame:end_frame]
-    
-    # Determine if we need to pad at the beginning
-    pad_front = max(0, m - f)
-    
-    # Determine if we need to pad at the end
-    pad_back = max(0, (f + n + 1) - A.size(0))
-    
-    # Apply padding if necessary
-    if pad_front > 0 or pad_back > 0:
-        padding = (pad_front, pad_back)
-        nearby_frames = torch.nn.functional.pad(nearby_frames, pad=padding, mode='constant', value=0)
-
-    # Flatten the nearby frames into a single feature vector
-    return nearby_frames.flatten()
-
 
 # Set device for torch
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -63,13 +31,6 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 bundle = torchaudio.pipelines.WAV2VEC2_BASE
 model = bundle.get_model().to(device)
 model.eval()
-
-
-import numpy as np
-
-
-
-
 
 def extract_features_from_mp4(video_path, model_name='facebook/wav2vec2-base-960h'):
     """
@@ -206,7 +167,7 @@ all_features = []
 for f in range(num_frames):
     # Get features for the current frame and its neighbors
     nearby_frames_features = get_nearby_frames_features(A, f, m, n, feature_dim)
-    print(nearby_frames_features.shape)  # This should print the shape of the concatenated features
+    print("nearby frames:",nearby_frames_features.shape)  # This should print the shape of the concatenated features
 
     # Convert to PyTorch tensor and add batch dimension
     frame_features = nearby_frames_features.unsqueeze(0).to(device)
