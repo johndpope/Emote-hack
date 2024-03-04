@@ -127,8 +127,6 @@ def get_head_pose(image_path):
     if results.multi_face_landmarks:       
         for face_landmarks in results.multi_face_landmarks:
             key_landmark_positions=[]
-            key_landmarks = [33, 263, 1, 61, 291, 199]
-            
             for idx, lm in enumerate(face_landmarks.landmark):
                 if idx in HEAD_POSE_LANDMARKS:
                     x, y = int(lm.x * img_w), int(lm.y * img_h)
@@ -136,8 +134,7 @@ def get_head_pose(image_path):
                     face_3d.append([x, y, lm.z])
 
                     landmark_position = [x,y]
-                if idx in key_landmarks:
-                        key_landmark_positions.append(landmark_position)
+                    key_landmark_positions.append(landmark_position)
             # Convert to numpy arrays
             face_2d = np.array(face_2d, dtype=np.float64)
             face_3d = np.array(face_3d, dtype=np.float64)
