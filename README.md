@@ -13,3 +13,10 @@ https://github.com/MooreThreads/Moore-AnimateAnyone/blob/master/train_stage_1.py
 ✅  Training data 
 
 https://academictorrents.com/details/843b5adb0358124d388c4e9836
+
+
+use extractframes.py
+```python
+video_path = 'M2Ohb0FAaJU_1.mp4'
+extract_and_save_frames(video_path,'.')
+```
