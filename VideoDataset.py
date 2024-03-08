@@ -1,124 +1,56 @@
+import os
 import json
 import random
-
 import torch
 import torchvision.transforms as transforms
-from decord import VideoReader
 from PIL import Image
 from torch.utils.data import Dataset
-from transformers import CLIPImageProcessor
+from Wav2VecFeatureExtractor import Wav2VecFeatureExtractor
+from HeadRotation import get_head_pose_velocities
 
+class EMODataset(Dataset):
+    def __init__(self, data_dir, audio_dir, json_file, transform=None):
+        self.data_dir = data_dir
+        self.audio_dir = audio_dir
+        self.transform = transform
+        self.feature_extractor = Wav2VecFeatureExtractor(model_name='facebook/wav2vec2-base-960h', device='cuda')
 
-class VideoDataset(Dataset):
-    def __init__(
-        self,
-        img_size,
-        img_scale=(1.0, 1.0),
-        img_ratio=(1.0, 1.0),
-        drop_ratio=0.1,
-        data_meta_paths=["./data/celebvhq_info.json"],
-        sample_margin=30,
-    ):
-        super().__init__()
+        with open(json_file, 'r') as f:
+            self.celebvhq_info = json.load(f)
 
-        self.img_size = img_size
-        self.img_scale = img_scale
-        self.img_ratio = img_ratio
-        self.sample_margin = sample_margin
-
-        # -----
-        # vid_meta format:
-        # [{'video_path': , 'kps_path': , 'other':},
-        #  {'video_path': , 'kps_path': , 'other':}]
-        # -----
-        vid_meta = []
-        for data_meta_path in data_meta_paths:
-            vid_meta.extend(json.load(open(data_meta_path, "r")))
-        self.vid_meta = vid_meta
-
-        self.clip_image_processor = CLIPImageProcessor()
-
-        # self.transform = transforms.Compose(
-        #     [
-        #         transforms.RandomResizedCrop(
-        #             self.img_size,
-        #             scale=self.img_scale,
-        #             ratio=self.img_ratio,
-        #             interpolation=transforms.InterpolationMode.BILINEAR,
-        #         ),
-        #         transforms.ToTensor(),
-        #         transforms.Normalize([0.5], [0.5]),
-        #     ]
-        # )
-
-        # self.cond_transform = transforms.Compose(
-        #     [
-        #         transforms.RandomResizedCrop(
-        #             self.img_size,
-        #             scale=self.img_scale,
-        #             ratio=self.img_ratio,
-        #             interpolation=transforms.InterpolationMode.BILINEAR,
-        #         ),
-        #         transforms.ToTensor(),
-        #     ]
-        # )
-
-        self.drop_ratio = drop_ratio
-
-    def augmentation(self, image, transform, state=None):
-        if state is not None:
-            torch.set_rng_state(state)
-        return transform(image)
-
-    def __getitem__(self, index):
-        video_meta = self.vid_meta[index]
-        video_path = video_meta["ytb_id"] + ".mp4"
-        kps_path = video_meta["kps_path"]
-
-        video_reader = VideoReader(video_path)
-        kps_reader = VideoReader(kps_path)
-
-        assert len(video_reader) == len(
-            kps_reader
-        ), f"{len(video_reader) = } != {len(kps_reader) = } in {video_path}"
-
-        video_length = len(video_reader)
-
-        margin = min(self.sample_margin, video_length)
-
-        ref_img_idx = random.randint(0, video_length - 1)
-        if ref_img_idx + margin < video_length:
-            tgt_img_idx = random.randint(ref_img_idx + margin, video_length - 1)
-        elif ref_img_idx - margin > 0:
-            tgt_img_idx = random.randint(0, ref_img_idx - margin)
-        else:
-            tgt_img_idx = random.randint(0, video_length - 1)
-
-        ref_img = video_reader[ref_img_idx]
-        ref_img_pil = Image.fromarray(ref_img.asnumpy())
-        tgt_img = video_reader[tgt_img_idx]
-        tgt_img_pil = Image.fromarray(tgt_img.asnumpy())
-
-        tgt_pose = kps_reader[tgt_img_idx]
-        tgt_pose_pil = Image.fromarray(tgt_pose.asnumpy())
-
-        state = torch.get_rng_state()
-        tgt_img = self.augmentation(tgt_img_pil, self.transform, state)
-        tgt_pose_img = self.augmentation(tgt_pose_pil, self.cond_transform, state)
-        ref_img_vae = self.augmentation(ref_img_pil, self.transform, state)
-        clip_image = self.clip_image_processor(
-            images=ref_img_pil, return_tensors="pt"
-        ).pixel_values[0]
-
-        sample = dict(
-            video_dir=video_path,
-            img=tgt_img,
-            tgt_pose=tgt_pose_img,
-            ref_img=ref_img_vae,
-            clip_images=clip_image,
-        )
-
-        return sample
+        self.video_ids = list(self.celebvhq_info['clips'].keys())
 
     def __len__(self):
-        return len(self.vid_meta)
+        return len(self.video_ids)
+
+    def __getitem__(self, index):
+        video_id = self.video_ids[index]
+        video_info = self.celebvhq_info['clips'][video_id]
+        ytb_id = video_info['ytb_id']
+
+        frame_folder = os.path.join(self.data_dir, f"{ytb_id}_{video_id.split('_')[-1]}")
+        # audio_path = os.path.join(self.audio_dir, f"{ytb_id}_{video_id.split('_')[-1]}.wav")
+        mp4_path = os.path.join(self.audio_dir, f"{ytb_id}_{video_id.split('_')[-1]}.mp4")
+        frames = sorted([frame for frame in os.listdir(frame_folder) if frame.endswith(".jpg")])
+        reference_frame = frames[0]  # Use the first frame as the reference frame
+        motion_frames = frames[1:]  # Use the remaining frames as motion frames
+
+        reference_image = Image.open(os.path.join(frame_folder, reference_frame))
+        motion_frame_paths = [os.path.join(frame_folder, frame) for frame in motion_frames]
+        
+        if self.transform:
+            reference_image = self.transform(reference_image)
+
+        audio_features = self.feature_extractor.extract_features_from_mp4(mp4_path, m=2, n=2)
+        
+        head_rotation_speeds = get_head_pose_velocities(motion_frame_paths)
+
+        sample = {
+            "video_id": video_id,
+            "reference_image": reference_image,
+            "motion_frame_paths": motion_frame_paths,
+            "audio_features": audio_features,
+            "head_rotation_speeds": head_rotation_speeds
+        }
+
+        return sample

@@ -5,9 +5,11 @@ from FramesEncoder import FramesEncoder
 from HeadRotation import get_head_pose_velocities
 from SpeedEncoder import SpeedEncoder
 from VAEEncoder import VAE, ImageEncoder
+from VideoDataset import EMODataset
 from Wav2VecFeatureExtractor import Wav2VecFeatureExtractor
 from diffusers import UNet2DConditionModel
 from transformers import Wav2Vec2Processor, Wav2Vec2Model
+import torch.optim as optim
 
 reference_unet_config = {
     "sample_size": 256,                # The size of the input samples
@@ -156,4 +158,54 @@ speed_embeddings = speed_encoder(head_rotation_speeds)
 
 
 
-output = emo_model(noisy_latents, timesteps, reference_image_tensor,motion_frames_tensor, audio_features)
+# output = emo_model(noisy_latents, timesteps, reference_image_tensor,motion_frames_tensor, audio_features)
+
+
+# Loss Function and Optimizer
+criterion = nn.MSELoss()
+learning_rate = 0.001  # or any other value opening per your model requirement
+optimizer = optim.Adam(emo_model.parameters(), lr=learning_rate)
+num_epochs = 20
+
+
+transform = transforms.Compose([
+    transforms.Resize((256, 256)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+])
+
+dataset = EMODataset(data_dir='./images_folder', audio_dir='./images_folder', transform=transform)
+data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+
+# Training Loop
+for epoch in range(num_epochs):
+    for batch in data_loader:
+        reference_images, motion_frames, audio_features, ground_truth_frames = batch
+        
+        # Generate noisy latents
+        noisy_latents = generate_noisy_latents(vae, timesteps, batch_size, latent_dim, device)
+        
+        # Extract head rotation velocities and encode them into speed embeddings
+        head_rotation_speeds = get_head_pose_velocities(motion_frames)
+        speed_embeddings = speed_encoder(head_rotation_speeds)
+        
+        # Forward pass through the EMOModel
+        generated_frames = emo_model(noisy_latents, timesteps, reference_images, motion_frames, audio_features, speed_embeddings)
+        
+        # Calculate the loss
+        loss = criterion(generated_frames, ground_truth_frames)
+        
+        # Backward pass and optimization
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+    
+    # Print the average loss for the epoch
+    print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}")
+    
+    # Evaluate the model on the validation set
+    evaluate(emo_model, val_dataloader)
+    
+    # Save the model checkpoint
+    save_checkpoint(emo_model, epoch)
