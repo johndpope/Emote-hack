@@ -1,7 +1,18 @@
 import math
+import numpy as np
 import torch
 import torch.nn as nn
 
+
+
+# The Python code provided implements a SpeedEncoder as outlined in the whitepaper,
+# with each bucket centering on specific head rotation velocities and radii. 
+# It uses a hyperbolic tangent (tanh) function to scale the input speeds into a range between -1 and 1,
+# creating a vector representing different velocity levels. 
+# This vector is then processed through a multi-layer perceptron (MLP) to generate a speed embedding, 
+# which can be utilized in downstream tasks such as controlling the speed and stability of generated animations. 
+# This implementation allows for the synchronization of character's head motion across video clips, 
+#     providing stable and controllable animation outputs.
 class SpeedEncoder:
     def __init__(self, num_speed_buckets, speed_embedding_dim):
         self.num_speed_buckets = num_speed_buckets
