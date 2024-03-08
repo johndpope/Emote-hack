@@ -1,6 +1,7 @@
 import os
 import torch
 import torch.nn as nn
+from FaceMeshMaskGenerator import FaceMeshMaskGenerator
 from FramesEncoder import FramesEncoder
 from HeadRotation import get_head_pose_velocities
 from SpeedEncoder import SpeedEncoder
@@ -189,7 +190,13 @@ num_epochs_stage1 = 20
 num_epochs_stage2 = 20
 num_epochs_stage3 = 20
 
+mask_generator = FaceMeshMaskGenerator()
+
 # Stage 1: Image Pretraining
+# The first stage is the image pretraining, where the Backbone Network,
+# the ReferenceNet, and the Face Locator are token into training, in this stage,
+# the Backbone takes a single frame as input, while ReferenceNet handles a distinct,
+# randomly chosen frame from the same video clip
 for epoch in range(num_epochs_stage1):
     for batch in stage1_dataloader:
         reference_image = batch['reference_image']
@@ -202,7 +209,7 @@ for epoch in range(num_epochs_stage1):
         reference_output = reference_network(reference_image)
         
         # Forward pass through Face Locator
-        face_region_mask = face_locator(backbone_image)
+        face_region_mask = mask_generator(backbone_image)
         
         # Calculate loss and perform optimization
         loss = criterion(backbone_output, reference_output)  # Define appropriate loss function
