@@ -1,6 +1,6 @@
 
 import torch.nn as nn
-from diffusers import UNet2DConditionModel
+from diffusers import UNet2DConditionModel,UNet3DConditionModel
 
 
 
@@ -14,8 +14,21 @@ class EMOModel(nn.Module):
         # Reference UNet
         self.reference_unet = UNet2DConditionModel(**config.reference_unet_config)
 
-        # Denoising UNet
-        self.denoising_unet = UNet2DConditionModel(**config.denoising_unet_config)
+# Denoising UNet
+        self.denoising_unet = UNet3DConditionModel(
+            sample_size=config.denoising_unet_config.get("sample_size"),
+            in_channels=config.denoising_unet_config.get("in_channels"),
+            out_channels=config.denoising_unet_config.get("out_channels"),
+            down_block_types=config.denoising_unet_config.get("down_block_types"),
+            up_block_types=config.denoising_unet_config.get("up_block_types"),
+            block_out_channels=config.denoising_unet_config.get("block_out_channels"),
+            layers_per_block=config.denoising_unet_config.get("layers_per_block"),
+            cross_attention_dim=config.denoising_unet_config.get("cross_attention_dim"),
+            attention_head_dim=config.denoising_unet_config.get("attention_head_dim"),
+            use_motion_module=config.denoising_unet_config.get("use_motion_module"),
+            motion_module_type=config.denoising_unet_config.get("motion_module_type"),
+            motion_module_kwargs=config.denoising_unet_config.get("motion_module_kwargs"),
+        )
 
         # Face Region Controller
         self.face_locator = nn.Sequential(

@@ -2,7 +2,7 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
-
+from diffusers.models.modeling_utils import ModelMixin
 
 
 # The Python code provided implements a SpeedEncoder as outlined in the whitepaper,
@@ -13,8 +13,9 @@ import torch.nn as nn
 # which can be utilized in downstream tasks such as controlling the speed and stability of generated animations. 
 # This implementation allows for the synchronization of character's head motion across video clips, 
 #     providing stable and controllable animation outputs.
-class SpeedEncoder:
+class SpeedEncoder(ModelMixin):
     def __init__(self, num_speed_buckets, speed_embedding_dim):
+        super().__init__()
         self.num_speed_buckets = num_speed_buckets
         self.speed_embedding_dim = speed_embedding_dim
         self.bucket_centers = self.get_bucket_centers()
