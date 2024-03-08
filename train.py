@@ -33,6 +33,32 @@ def generate_noisy_latents(vae, timesteps, batch_size, latent_dim, device):
     return noisy_latents
 
 
+reference_unet_config = {
+    "sample_size": 256,                # The size of the input samples
+    "in_channels": 3,                  # The number of input channels (e.g., for RGB images this is 3)
+    "out_channels": 3,                 # The number of output channels
+    "down_block_types": ("DownBlock2D",) * 4,   # A tuple defining the types of blocks in the downsampling path
+    "up_block_types": ("UpBlock2D",) * 4,       # A tuple defining the types of blocks in the upsampling path
+    # ... Additional configurations
+}
+
+denoising_unet_config = {
+    "sample_size": 256,                # The size of the input samples
+    "in_channels": 3,                  # The number of input channels (e.g., for RGB images this is 3)
+    "out_channels": 3,                 # The number of output channels
+    "down_block_types": ("DownBlock2D", "AttnDownBlock2D") * 2,   # A tuple defining the types of blocks, including attention blocks
+    "up_block_types": ("UpBlock2D", "AttnUpBlock2D") * 2,         # A tuple defining the types of blocks, including attention blocks
+    # ... Additional configurations
+}
+
+# Configuration for the EMOModel
+config = {
+    "num_speed_buckets": 10,
+    "speed_embedding_dim": 64,
+    "reference_unet_config": reference_unet_config,
+    "denoising_unet_config": denoising_unet_config,
+    # ... Additional model configurations
+}
 
 feature_extractor = Wav2VecFeatureExtractor(model_name='facebook/wav2vec2-base-960h', device='cuda')
 video_path = 'images_folder/M2Ohb0FAaJU_1'

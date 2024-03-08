@@ -1,35 +1,8 @@
-import os
-import torch
+
 import torch.nn as nn
 from diffusers import UNet2DConditionModel
 
 
-reference_unet_config = {
-    "sample_size": 256,                # The size of the input samples
-    "in_channels": 3,                  # The number of input channels (e.g., for RGB images this is 3)
-    "out_channels": 3,                 # The number of output channels
-    "down_block_types": ("DownBlock2D",) * 4,   # A tuple defining the types of blocks in the downsampling path
-    "up_block_types": ("UpBlock2D",) * 4,       # A tuple defining the types of blocks in the upsampling path
-    # ... Additional configurations
-}
-
-denoising_unet_config = {
-    "sample_size": 256,                # The size of the input samples
-    "in_channels": 3,                  # The number of input channels (e.g., for RGB images this is 3)
-    "out_channels": 3,                 # The number of output channels
-    "down_block_types": ("DownBlock2D", "AttnDownBlock2D") * 2,   # A tuple defining the types of blocks, including attention blocks
-    "up_block_types": ("UpBlock2D", "AttnUpBlock2D") * 2,         # A tuple defining the types of blocks, including attention blocks
-    # ... Additional configurations
-}
-
-# Configuration for the EMOModel
-config = {
-    "num_speed_buckets": 10,
-    "speed_embedding_dim": 64,
-    "reference_unet_config": reference_unet_config,
-    "denoising_unet_config": denoising_unet_config,
-    # ... Additional model configurations
-}
 
 
 class EMOModel(nn.Module):
