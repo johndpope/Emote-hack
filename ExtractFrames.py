@@ -53,10 +53,11 @@ def extract_frames(video_path, clip_info):
     cap.release()
 
 
-def extract_and_save_frames(video_path, output_dir):
-    # Create the output directory if it doesn't exist
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+def extract_and_save_frames(video_path, images_folder):
+    # Create a subfolder with the same name as the video file (without extension)
+    video_name = os.path.splitext(os.path.basename(video_path))[0]
+    subfolder_path = os.path.join(images_folder, video_name)
+    os.makedirs(subfolder_path, exist_ok=True)
 
     # Open the video file
     cap = cv2.VideoCapture(video_path)
@@ -72,7 +73,7 @@ def extract_and_save_frames(video_path, output_dir):
         if not ret:
             break  # Exit the loop if no more frames are available
 
-        frame_filename = os.path.join(output_dir, f"frame_{frame_count:04d}.jpg")
+        frame_filename = os.path.join(subfolder_path, f"frame_{frame_count:04d}.jpg")
         cv2.imwrite(frame_filename, frame)
         frame_count += 1
 
@@ -81,4 +82,4 @@ def extract_and_save_frames(video_path, output_dir):
 
 # Assuming your video is named 'M2Ohb0FAaJU_1.mp4' and located in the current directory
 video_path = 'M2Ohb0FAaJU_1.mp4'
-extract_and_save_frames(video_path,'.')
+extract_and_save_frames(video_path,'./images_folder')
