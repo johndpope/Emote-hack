@@ -5,12 +5,14 @@ from FramesEncoder import FramesEncoder
 from HeadRotation import get_head_pose_velocities
 from SpeedEncoder import SpeedEncoder
 from VAEEncoder import VAE, ImageEncoder
-from VideoDataset import EMODataset
+from EMODataset import EMODataset
 from Wav2VecFeatureExtractor import Wav2VecFeatureExtractor
 from diffusers import UNet2DConditionModel
 from transformers import Wav2Vec2Processor, Wav2Vec2Model
 import torch.optim as optim
 import torchvision.transforms as transforms
+from torch.utils.data  import DataLoader
+
 reference_unet_config = {
     "sample_size": 256,                # The size of the input samples
     "in_channels": 3,                  # The number of input channels (e.g., for RGB images this is 3)
@@ -158,54 +160,97 @@ speed_embeddings = speed_encoder(head_rotation_speeds)
 
 
 
-# output = emo_model(noisy_latents, timesteps, reference_image_tensor,motion_frames_tensor, audio_features)
-
-
-# Loss Function and Optimizer
-criterion = nn.MSELoss()
-learning_rate = 0.001  # or any other value opening per your model requirement
-optimizer = optim.Adam(emo_model.parameters(), lr=learning_rate)
-num_epochs = 20
-
-
+# Create data loaders for each training stage
 transform = transforms.Compose([
     transforms.Resize((256, 256)),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
 ])
 
-dataset = EMODataset(data_dir='./images_folder', audio_dir='./images_folder', json_file='./data/celebvhq_info.json', transform=transform)
-data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+stage1_dataset = EMODataset(data_dir='./images_folder', audio_dir='./images_folder', json_file='path/to/celebvhq_info.json', stage='stage1', transform=transform)
+stage1_dataloader = DataLoader(stage1_dataset, batch_size=32, shuffle=True, num_workers=4)
+
+stage2_dataset = EMODataset(data_dir='./images_folder', audio_dir='./images_folder', json_file='path/to/celebvhq_info.json', stage='stage2', transform=transform)
+stage2_dataloader = DataLoader(stage2_dataset, batch_size=16, shuffle=True, num_workers=4)
+
+stage3_dataset = EMODataset(data_dir='./images_folder', audio_dir='./images_folder', json_file='path/to/celebvhq_info.json', stage='stage3', transform=transform)
+stage3_dataloader = DataLoader(stage3_dataset, batch_size=16, shuffle=True, num_workers=4)
+
+# Define loss function and optimizer
+criterion = nn.MSELoss()
+optimizer = optim.Adam(emo_model.parameters(), lr=0.001)
 
 
-# Training Loop
-for epoch in range(num_epochs):
-    for batch in data_loader:
-        reference_images, motion_frames, audio_features, ground_truth_frames = batch
+num_epochs_stage1 = 20
+num_epochs_stage2 = 20
+num_epochs_stage3 = 20
+
+# Stage 1: Image Pretraining
+for epoch in range(num_epochs_stage1):
+    for batch in stage1_dataloader:
+        reference_image = batch['reference_image']
+        backbone_image = batch['backbone_image']
         
-        # Generate noisy latents
-        noisy_latents = generate_noisy_latents(vae, timesteps, batch_size, latent_dim, device)
+        # Forward pass through Backbone Network
+        backbone_output = backbone_network(backbone_image)
         
-        # Extract head rotation velocities and encode them into speed embeddings
-        head_rotation_speeds = get_head_pose_velocities(motion_frames)
-        speed_embeddings = speed_encoder(head_rotation_speeds)
+        # Forward pass through ReferenceNet
+        reference_output = reference_network(reference_image)
         
-        # Forward pass through the EMOModel
-        generated_frames = emo_model(noisy_latents, timesteps, reference_images, motion_frames, audio_features, speed_embeddings)
+        # Forward pass through Face Locator
+        face_region_mask = face_locator(backbone_image)
         
-        # Calculate the loss
-        loss = criterion(generated_frames, ground_truth_frames)
-        
-        # Backward pass and optimization
+        # Calculate loss and perform optimization
+        loss = criterion(backbone_output, reference_output)  # Define appropriate loss function
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-    
-    # Print the average loss for the epoch
-    print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}")
-    
-    # Evaluate the model on the validation set
-    evaluate(emo_model, val_dataloader)
-    
-    # Save the model checkpoint
-    save_checkpoint(emo_model, epoch)
+
+# Stage 2: Video Training
+for epoch in range(num_epochs_stage2):
+    for batch in stage2_dataloader:
+        motion_frames = batch['motion_frames']
+        video_frames = batch['video_frames']
+        audio_features = batch['audio_features']
+        
+        # Forward pass through Backbone Network
+        backbone_output = backbone_network(video_frames)
+        
+        # Forward pass through ReferenceNet
+        reference_output = reference_network(motion_frames)
+        
+        # Forward pass through Face Locator
+        face_region_mask = face_locator(video_frames)
+        
+        # Forward pass through temporal modules
+        temporal_output = temporal_modules(backbone_output)
+        
+        # Forward pass through audio layers
+        audio_output = audio_layers(audio_features)
+        
+        # Calculate loss and perform optimization
+        loss = criterion(temporal_output, audio_output)  # Define appropriate loss function
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+# Stage 3: Speed Training
+for epoch in range(num_epochs_stage3):
+    for batch in stage3_dataloader:
+        video_frames = batch['video_frames']
+        head_rotation_speeds = batch['head_rotation_speeds']
+        
+        # Forward pass through Backbone Network
+        backbone_output = backbone_network(video_frames)
+        
+        # Forward pass through temporal modules
+        temporal_output = temporal_modules(backbone_output)
+        
+        # Forward pass through speed layers
+        speed_output = speed_layers(head_rotation_speeds)
+        
+        # Calculate loss and perform optimization
+        loss = criterion(temporal_output, speed_output)  # Define appropriate loss function
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
