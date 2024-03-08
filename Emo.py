@@ -174,7 +174,7 @@ transform = transforms.Compose([
     transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
 ])
 
-dataset = EMODataset(data_dir='./images_folder', audio_dir='./images_folder', json_file='./data/celebvhq_info.json' transform=transform)
+dataset = EMODataset(data_dir='./images_folder', audio_dir='./images_folder', json_file='./data/celebvhq_info.json', transform=transform)
 data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 
