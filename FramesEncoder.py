@@ -28,6 +28,26 @@ class FramesEncoder:
             features = self.feature_extractor(frame.unsqueeze(0))  # Add batch dimension
         return features.squeeze(0)  # Remove batch dimension
 
+    def encode_reference_image(self, reference_image_path):
+        reference_image = self.load_image(reference_image_path)
+        processed_reference_image = self.preprocess_frame(reference_image)
+        return processed_reference_image
+    
+    def encode_motion_frames(self, motion_frames_folder):
+        motion_frames = []
+        # Sort files to ensure they are processed in order
+        file_list = sorted(os.listdir(motion_frames_folder))
+        for file_name in file_list:
+            if file_name.endswith('.jpg') or file_name.endswith('.png'):
+                frame_path = os.path.join(motion_frames_folder, file_name)
+                frame = self.load_image(frame_path)
+                processed_frame = self.preprocess_frame(frame)
+                motion_frames.append(processed_frame)
+
+        # Stack motion frames into a single tensor
+        motion_frames_tensor = torch.stack(motion_frames)
+        return motion_frames_tensor
+
     def load_frames_from_folder(self, folder_path):
         frames = []
         # Sort files to ensure they are processed in order

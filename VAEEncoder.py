@@ -1,105 +1,79 @@
 import torch
-from torch import nn
-from torchvision.models import resnet18
-
-class VAE_Encoder(nn.Module):
-    def __init__(self, input_channels, latent_dim):
-        super().__init__()
-        # Use ResNet or a similar architecture as a feature extractor
-        self.feature_extractor = resnet18(pretrained=True)
-        self.feature_extractor.fc = nn.Identity()  # Remove the final classification layer
-        self.fc_mu = nn.Linear(512, latent_dim)  # Assuming ResNet outputs 512 features
-        self.fc_logvar = nn.Linear(512, latent_dim)
-
-    def forward(self, x):
-        features = self.feature_extractor(x)
-        return self.fc_mu(features), self.fc_logvar(features)
-
-class VAE_Decoder(nn.Module):
-    # Define your VAE decoder which should upsample the latent dim to the original frame size
-    pass
+import torch.nn as nn
 
 class VAE(nn.Module):
-    def __init__(self, input_channels, latent_dim):
-        super().__init__()
-        self.encoder = VAE_Encoder(input_channels, latent_dim)
-        self.decoder = VAE_Decoder(latent_dim, input_channels)
-
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + eps * std
-
+    def __init__(self, latent_dim):
+        super(VAE, self).__init__()
+        self.latent_dim = latent_dim
+        
+        # Encoder
+        self.encoder = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Flatten(),
+            nn.Linear(128 * 8 * 8, 2 * latent_dim)
+        )
+        
+        # Decoder
+        self.decoder = nn.Sequential(
+            nn.Linear(latent_dim, 128 * 8 * 8),
+            nn.Unflatten(1, (128, 8, 8)),
+            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(32, 3, kernel_size=4, stride=2, padding=1),
+            nn.Tanh()
+        )
+    
+    def encode(self, x):
+        latent_params = self.encoder(x)
+        mu, log_var = latent_params.chunk(2, dim=-1)
+        return mu, log_var
+    
+    def decode(self, z):
+        reconstructed = self.decoder(z)
+        return reconstructed
+    
     def forward(self, x):
-        mu, logvar = self.encoder(x)
-        z = self.reparameterize(mu, logvar)
-        return self.decoder(z), mu, logvar
-
-# Instantiate VAE
-#input_channels = 3  # RGB frames
-#latent_dim = 256  # Example latent dimension
-#vae = VAE(input_channels, latent_dim)
-
-# Assume `reference_image` and `motion_frames` are tensors representing your data
-# reference_image: [batch_size, channels, height, width]
-# motion_frames: [batch_size, num_frames, channels, height, width]
-
-# Encode frames with VAE
-#encoded_frames = []
-#for frame in motion_frames:
-    # Concatenate reference image and frame along the channel dimension
-#    combined_input = torch.cat([reference_image, frame], dim=1)
-#    recon_frame, mu, logvar = vae(combined_input)
-#    encoded_frames.append((recon_frame, mu, logvar))
-
-# Now, encoded_frames contains the reconstructed frames and latent variables,
-# which can be further used in the Diffusion Process with Backbone Network.
-
-
-class ReferenceNetWithVAE(nn.Module):
-    def __init__(self, vae_encoder, vae_decoder, *args, **kwargs):
-        super().__init__()
-        # Initialize the VAE components
-        self.vae_encoder = vae_encoder
-        self.vae_decoder = vae_decoder
-        # The rest of the ReferenceNet components are initialized here
-        # ...
+        mu, log_var = self.encode(x)
+        z = self.reparameterize(mu, log_var)
+        reconstructed = self.decode(z)
+        return reconstructed, mu, log_var
     
-    def forward(self, reference_image, motion_frames):
-        # Encode the reference image and motion frames using the VAE Encoder
-        encoded_frames = []
-        for frame in motion_frames:
-            # Concatenate reference image and frame along the channel dimension
-            combined_input = torch.cat([reference_image, frame], dim=1)
-            mu, logvar = self.vae_encoder(combined_input)
-            z = self.reparameterize(mu, logvar)
-            encoded_frames.append(z)
-        
-        # The rest of the ReferenceNet forward pass using the encoded frames
-        # ...
-        
-        # Decode the final output using the VAE Decoder
-        final_output = self.vae_decoder(encoded_frames[-1])
-        
-        return final_output
-
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5 * logvar)
+    def reparameterize(self, mu, log_var):
+        std = torch.exp(0.5 * log_var)
         eps = torch.randn_like(std)
-        return mu + eps * std
+        z = mu + eps * std
+        return z
+
+class ImageEncoder(nn.Module):
+    def __init__(self, embedding_dim):
+        super(ImageEncoder, self).__init__()
+        self.embedding_dim = embedding_dim
+        
+        self.encoder = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(256, 512, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Flatten(),
+            nn.Linear(512, embedding_dim)
+        )
     
-# Define the VAE Encoder and Decoder
-latent_dim = 256  # Example latent dimension
-vae_encoder = VAE_Encoder(input_channels=3 * 2, latent_dim=latent_dim)  # input_channels should be doubled to accommodate concatenated images
-vae_decoder = VAE_Decoder(latent_dim=latent_dim, output_channels=3)  # Assuming decoder outputs frames with 3 channels (RGB)
+    def forward(self, x):
+        embeddings = self.encoder(x)
+        return embeddings
 
-# Initialize ReferenceNet with VAE components
-reference_net_with_vae = ReferenceNetWithVAE(vae_encoder, vae_decoder)
-
-# Example usage
-# reference_image and motion_frames should be prepared as tensors
-# reference_image: [batch_size, channels, height, width]
-# motion_frames: [batch_size, num_frames, channels, height, width]
-final_output = reference_net_with_vae(reference_image, motion_frames)
-
-# final_output is the reconstructed frames from the ReferenceNet enhanced with the VAE
