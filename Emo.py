@@ -2,6 +2,8 @@ import os
 import torch
 import torch.nn as nn
 from FramesEncoder import FramesEncoder
+from HeadRotation import get_head_pose_velocities
+from SpeedEncoder import SpeedEncoder
 from VAEEncoder import VAE, ImageEncoder
 from Wav2VecFeatureExtractor import Wav2VecFeatureExtractor
 from diffusers import UNet2DConditionModel
@@ -33,6 +35,23 @@ config = {
     "denoising_unet_config": denoising_unet_config,
     # ... Additional model configurations
 }
+
+
+def generate_noisy_latents(vae, timesteps, batch_size, latent_dim, device):
+    # Sample latent vectors from the VAE
+    latents = torch.randn(batch_size, latent_dim).to(device)
+    latents = vae.decode(latents)
+
+    # Add noise to the latents based on the timesteps
+    noisy_latents = []
+    for t in timesteps:
+        noise = torch.randn_like(latents)
+        noisy_latent = latents + noise * t
+        noisy_latents.append(noisy_latent)
+
+    noisy_latents = torch.stack(noisy_latents, dim=0)
+    return noisy_latents
+
 class EMOModel(nn.Module):
     def __init__(self, vae, image_encoder, config):
         super(EMOModel, self).__init__()
@@ -57,7 +76,7 @@ class EMOModel(nn.Module):
         # Speed Controller
         self.speed_embedding = nn.Embedding(config.num_speed_buckets, config.speed_embedding_dim)
 
-    def forward(self, noisy_latents, timesteps, ref_image, motion_frames, audio_features):
+    def forward(self, noisy_latents, timesteps, ref_image, motion_frames, audio_features, speed_embeddings):
         # Encode reference image
         ref_image_latents = self.vae.encode(ref_image).latent_dist.sample()
         ref_image_latents = ref_image_latents * 0.18215
@@ -74,9 +93,6 @@ class EMOModel(nn.Module):
         # Compute face region mask
         face_region_mask = self.face_locator(ref_image)
 
-        # Compute speed embedding
-        speed_embeds = self.speed_embedding(speed_buckets)
-
         # Forward pass through Reference UNet
         self.reference_unet(ref_image_latents, encoder_hidden_states=ref_image_embeds)
 
@@ -86,7 +102,7 @@ class EMOModel(nn.Module):
             timesteps,
             audio_cond_fea=audio_embeds,
             pose_cond_fea=face_region_mask,
-            speed_cond_fea=speed_embeds,
+            speed_cond_fea=speed_embeddings,
             encoder_hidden_states=ref_image_embeds,
             motion_frames_hidden_states=motion_frames_embeds,
         )
@@ -119,21 +135,6 @@ emo_model = EMOModel(vae, image_encoder, config)
 
 
 
-def generate_noisy_latents(vae, timesteps, batch_size, latent_dim, device):
-    # Sample latent vectors from the VAE
-    latents = torch.randn(batch_size, latent_dim).to(device)
-    latents = vae.decode(latents)
-
-    # Add noise to the latents based on the timesteps
-    noisy_latents = []
-    for t in timesteps:
-        noise = torch.randn_like(latents)
-        noisy_latent = latents + noise * t
-        noisy_latents.append(noisy_latent)
-
-    noisy_latents = torch.stack(noisy_latents, dim=0)
-    return noisy_latents
-
 # Specify the necessary parameters
 batch_size = 1
 latent_dim = 256
@@ -145,6 +146,14 @@ timesteps = torch.linspace(0, 1, num_frames).to(device)  # Adjust the number of 
 
 # Generate noisy latents
 noisy_latents = generate_noisy_latents(vae, timesteps, batch_size, latent_dim, device)
+
+num_speed_buckets = 10
+speed_embedding_dim = 64
+speed_encoder = SpeedEncoder(num_speed_buckets, speed_embedding_dim)
+
+head_rotation_speeds = get_head_pose_velocities(motion_frames_folder)
+speed_embeddings = speed_encoder(head_rotation_speeds)
+
 
 
 output = emo_model(noisy_latents, timesteps, reference_image_tensor,motion_frames_tensor, audio_features)
