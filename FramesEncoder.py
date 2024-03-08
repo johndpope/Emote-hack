@@ -1,3 +1,4 @@
+import os
 import torch
 import torchvision.transforms as transforms
 from torchvision.models import resnet50
@@ -17,10 +18,6 @@ class FramesEncoder:
             self.feature_extractor.eval()  # Set to evaluation mode
 
     def preprocess_frame(self, frame):
-        # Convert frame to PIL Image if it's not
-        if not isinstance(frame, Image.Image):
-            frame = Image.fromarray(frame)
-
         # Apply transformations
         frame = self.transform(frame)
         return frame
@@ -31,7 +28,19 @@ class FramesEncoder:
             features = self.feature_extractor(frame.unsqueeze(0))  # Add batch dimension
         return features.squeeze(0)  # Remove batch dimension
 
-    def encode(self, frames):
+    def load_frames_from_folder(self, folder_path):
+        frames = []
+        # Sort files to ensure they are processed in order
+        file_list = sorted(os.listdir(folder_path))
+        for file_name in file_list:
+            if file_name.endswith('.jpg') or file_name.endswith('.png'):
+                frame_path = os.path.join(folder_path, file_name)
+                frame = Image.open(frame_path)
+                frames.append(frame)
+        return frames
+
+    def encode(self, folder_path):
+        frames = self.load_frames_from_folder(folder_path)
         # Preprocess and possibly extract features from each frame
         processed_frames = [self.preprocess_frame(frame) for frame in frames]
         
@@ -43,10 +52,8 @@ class FramesEncoder:
         return frame_tensor
 
 # Example usage
-#frames_encoder = FramesEncoder(use_feature_extractor=True)
+# frames_encoder = FramesEncoder(use_feature_extractor=True)
+# folder_path = 'path_to_extracted_frames_folder'  # Replace with the actual path to your frames folder
+# video_frame_tensor = frames_encoder.encode(folder_path)
 
-# Example list of frames (as numpy arrays or PIL Images)
-#frames = [frame1, frame2, frame3]  # Replace with actual frame data
-#encoded_frames = frames_encoder.encode(frames)
-
-# Now, encoded_frames can be used as input to the EMO model
+# Now, video_frame_tensor can be used as input to the EMO model or any other application
