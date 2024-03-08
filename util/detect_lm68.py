@@ -37,7 +37,7 @@ def load_data(img_name, txt_name):
 
 # create tensorflow graph for landmark detector
 def load_lm_graph(graph_filename):
-    with tf.gfile.GFile(graph_filename, 'rb') as f:
+    with tf.compat.v1.gfile.GFile(graph_filename, 'rb') as f:
         graph_def = tf.GraphDef()
         graph_def.ParseFromString(f.read())
 
