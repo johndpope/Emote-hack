@@ -5,7 +5,7 @@ from torchvision.models import resnet50
 from PIL import Image
 
 class FramesEncoder:
-    def __init__(self, frame_size=(64, 64), use_feature_extractor=False):
+    def __init__(self, frame_size=(512, 512), use_feature_extractor=False):
         self.transform = transforms.Compose([
             transforms.Resize(frame_size),
             transforms.ToTensor(),
