@@ -179,7 +179,11 @@ stage3_dataloader = DataLoader(stage3_dataset, batch_size=16, shuffle=True, num_
 # Define loss function and optimizer
 criterion = nn.MSELoss()
 optimizer = optim.Adam(emo_model.parameters(), lr=0.001)
+output = emo_model(noisy_latents, timesteps, reference_image_tensor, motion_frames_tensor, audio_features, speed_embeddings)
 
+
+
+## DRAFT - NOT FINAL
 
 num_epochs_stage1 = 20
 num_epochs_stage2 = 20
