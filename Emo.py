@@ -10,7 +10,7 @@ from Wav2VecFeatureExtractor import Wav2VecFeatureExtractor
 from diffusers import UNet2DConditionModel
 from transformers import Wav2Vec2Processor, Wav2Vec2Model
 import torch.optim as optim
-
+import torchvision.transforms as transforms
 reference_unet_config = {
     "sample_size": 256,                # The size of the input samples
     "in_channels": 3,                  # The number of input channels (e.g., for RGB images this is 3)
@@ -174,7 +174,7 @@ transform = transforms.Compose([
     transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
 ])
 
-dataset = EMODataset(data_dir='./images_folder', audio_dir='./images_folder', transform=transform)
+dataset = EMODataset(data_dir='./images_folder', audio_dir='./images_folder', json_file='./data/celebvhq_info.json' transform=transform)
 data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 
