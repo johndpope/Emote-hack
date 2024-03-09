@@ -1,10 +1,8 @@
-
 import torch.nn as nn
-from diffusers import UNet2DConditionModel,UNet3DConditionModel
+from magicanimate.models.unet_controlnet import  UNet3DConditionModel
+from magicanimate.models.controlnet import UNet2DConditionModel
+
 from diffusers.models.modeling_utils import ModelMixin
-
-
-
 
 class EMOModel(ModelMixin):
     def __init__(self, vae, image_encoder, config):
@@ -15,7 +13,7 @@ class EMOModel(ModelMixin):
         # Reference UNet
         self.reference_unet = UNet2DConditionModel(**config.reference_unet_config)
 
-        # Denoising UNet
+        # Denoising UNet (Backbone Network)
         self.denoising_unet = UNet3DConditionModel(
             sample_size=config.denoising_unet_config.get("sample_size"),
             in_channels=config.denoising_unet_config.get("in_channels"),
@@ -26,8 +24,8 @@ class EMOModel(ModelMixin):
             layers_per_block=config.denoising_unet_config.get("layers_per_block"),
             cross_attention_dim=config.denoising_unet_config.get("cross_attention_dim"),
             attention_head_dim=config.denoising_unet_config.get("attention_head_dim"),
-            use_motion_module=config.denoising_unet_config.get("use_motion_module"),
-            motion_module_type=config.denoising_unet_config.get("motion_module_type"),
+            use_motion_module=True,
+            motion_module_type='simple',
             motion_module_kwargs=config.denoising_unet_config.get("motion_module_kwargs"),
         )
 
@@ -66,11 +64,14 @@ class EMOModel(ModelMixin):
         # Forward pass through Reference UNet
         ref_embeds = self.reference_unet(ref_image_latents, timesteps, ref_image_embeds).sample
 
-        # Forward pass through Denoising UNet
+        # Forward pass through Denoising UNet (Backbone Network)
         model_pred = self.denoising_unet(
             sample=noisy_latents,
             timestep=timesteps,
             encoder_hidden_states=ref_embeds,
+            motion_fea=motion_frames_embeds,
+            audio_fea=audio_embeds,
+            speed_fea=speed_embeddings,
             pose_cond_fea=face_region_mask,
         ).sample
 
