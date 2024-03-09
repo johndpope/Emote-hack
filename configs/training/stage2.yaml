@@ -2,8 +2,6 @@ data:
   train_bs: 1
   train_width: 384 
   train_height: 240 
-  meta_paths:
-    - "datasets/talk/talk_meta.json"
   sample_rate: 4 
   n_sample_frames: 24
 

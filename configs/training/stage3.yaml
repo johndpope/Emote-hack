@@ -52,5 +52,5 @@ seed: 12580
 resume_from_checkpoint: ''
 checkpointing_steps: 1000
 save_model_epoch_interval: 5
-exp_name: 'stage1'
+exp_name: 'stage3'
 output_dir: './exp_output'  

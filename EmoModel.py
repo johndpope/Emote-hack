@@ -1,20 +1,21 @@
 
 import torch.nn as nn
 from diffusers import UNet2DConditionModel,UNet3DConditionModel
+from diffusers.models.modeling_utils import ModelMixin
 
 
 
 
-class EMOModel(nn.Module):
+class EMOModel(ModelMixin):
     def __init__(self, vae, image_encoder, config):
-        super(EMOModel, self).__init__()
+        super().__init__()
         self.vae = vae
         self.image_encoder = image_encoder
 
         # Reference UNet
         self.reference_unet = UNet2DConditionModel(**config.reference_unet_config)
 
-# Denoising UNet
+        # Denoising UNet
         self.denoising_unet = UNet3DConditionModel(
             sample_size=config.denoising_unet_config.get("sample_size"),
             in_channels=config.denoising_unet_config.get("in_channels"),
@@ -43,6 +44,8 @@ class EMOModel(nn.Module):
         self.speed_embedding = nn.Embedding(config.num_speed_buckets, config.speed_embedding_dim)
 
     def forward(self, noisy_latents, timesteps, ref_image, motion_frames, audio_features, speed_embeddings):
+        batch_size, num_frames, _, height, width = noisy_latents.shape
+
         # Encode reference image
         ref_image_latents = self.vae.encode(ref_image).latent_dist.sample()
         ref_image_latents = ref_image_latents * 0.18215
@@ -58,20 +61,17 @@ class EMOModel(nn.Module):
 
         # Compute face region mask
         face_region_mask = self.face_locator(ref_image)
+        face_region_mask = face_region_mask.unsqueeze(1).repeat(1, num_frames, 1, 1, 1)
 
         # Forward pass through Reference UNet
-        self.reference_unet(ref_image_latents, encoder_hidden_states=ref_image_embeds)
+        ref_embeds = self.reference_unet(ref_image_latents, timesteps, ref_image_embeds).sample
 
         # Forward pass through Denoising UNet
         model_pred = self.denoising_unet(
-            noisy_latents,
-            timesteps,
-            audio_cond_fea=audio_embeds,
+            sample=noisy_latents,
+            timestep=timesteps,
+            encoder_hidden_states=ref_embeds,
             pose_cond_fea=face_region_mask,
-            speed_cond_fea=speed_embeddings,
-            encoder_hidden_states=ref_image_embeds,
-            motion_frames_hidden_states=motion_frames_embeds,
-        )
+        ).sample
 
         return model_pred
-    
