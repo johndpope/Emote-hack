@@ -67,7 +67,8 @@ def main(cfg):
             # Simplified training step
             optimizer.zero_grad()
             output = emo_model(batch['noisy_latents'], batch['timesteps'], batch['ref_image'],
-                               batch['motion_frames'], batch['audio_features'], batch['speed_embeddings'])
+                               batch['motion_frames'], batch['audio_features'], batch['head_rotation_speeds'])
+           
             loss = F.mse_loss(output, batch['target'])
             accelerator.backward(loss)
             optimizer.step()

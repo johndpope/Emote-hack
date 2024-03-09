@@ -1,4 +1,5 @@
 import torch.nn as nn
+from SpeedEncoder import SpeedEncoder
 from magicanimate.models.unet_controlnet import  UNet3DConditionModel
 from magicanimate.models.controlnet import UNet2DConditionModel
 
@@ -39,9 +40,9 @@ class EMOModel(ModelMixin):
         )
 
         # Speed Controller
-        self.speed_embedding = nn.Embedding(config.num_speed_buckets, config.speed_embedding_dim)
+        self.speed_encoder = SpeedEncoder(config.num_speed_buckets, config.speed_embedding_dim)
 
-    def forward(self, noisy_latents, timesteps, ref_image, motion_frames, audio_features, speed_embeddings):
+    def forward(self, noisy_latents, timesteps, ref_image, motion_frames, audio_features, head_rotation_speeds):
         batch_size, num_frames, _, height, width = noisy_latents.shape
 
         # Encode reference image
@@ -63,6 +64,9 @@ class EMOModel(ModelMixin):
 
         # Forward pass through Reference UNet
         ref_embeds = self.reference_unet(ref_image_latents, timesteps, ref_image_embeds).sample
+
+        # Get speed embeddings from the head rotation speeds
+        speed_embeddings = self.speed_encoder(head_rotation_speeds)
 
         # Forward pass through Denoising UNet (Backbone Network)
         model_pred = self.denoising_unet(
