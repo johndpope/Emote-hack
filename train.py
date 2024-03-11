@@ -52,7 +52,7 @@ def main(cfg):
             json_file='./data/celebvhq_info.json', 
             stage='stage3', 
             transform=transform)
-    stage3_dataloader = DataLoader(stage3_dataset, batch_size=16, shuffle=True, num_workers=1)
+    stage3_dataloader = DataLoader(stage3_dataset, batch_size=16, shuffle=True, num_workers=0)
 
     num_speed_buckets = 9
     speed_embedding_dim = 64
@@ -72,30 +72,35 @@ def main(cfg):
     # Stage 3: Speed Training
     for epoch in range(num_epochs_stage3):
         for batch in stage3_dataloader:
-      
-            head_rotation_speeds = batch["head_rotation_speeds"]
-            print("head_rotation_speeds:",head_rotation_speeds)
+            # Extract head rotation speeds from the batch
+            head_rotation_speeds = batch["head_rotation_speeds"]  # Ground truth
 
-            # Forward pass through speed layers
-            speed_output = speed_layers(head_rotation_speeds)
-            print("speed_output:",speed_output)
-            
-        #     # Calculate loss and perform optimization
-        #     loss = criterion(temporal_output, speed_output)  # Define appropriate loss function
-        #     optimizer.zero_grad()
-        #     loss.backward()
-        #     optimizer.step()
-            
-        #       # Save the model at specified intervals
-        # if (epoch + 1) % save_interval == 0 or epoch == num_epochs_stage3 - 1:
-        #     save_path = os.path.join(cfg.model_save_dir, f'speed_encoder_epoch_{epoch + 1}.pth')
-        #     torch.save({
-        #         'epoch': epoch,
-        #         'model_state_dict': emo_model.state_dict(),
-        #         'optimizer_state_dict': optimizer.state_dict(),
-        #         'loss': loss,
-        #     }, save_path)
-        #     print(f"Model saved at epoch {epoch + 1}")
+            # Perform a forward pass through the SpeedEncoder
+            # The SpeedEncoder's forward method now directly takes the head rotation speeds
+            predicted_speeds = speed_layers(head_rotation_speeds)
+
+            # Compute loss
+            # The loss is calculated between the predicted speeds and the ground truth
+            loss = criterion(predicted_speeds, head_rotation_speeds)
+
+            # Backpropagation and optimization
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            # Optionally print out loss here for monitoring
+            print(f"Epoch: {epoch}, Loss: {loss.item()}")
+
+    # Save the model at specified intervals
+    if (epoch + 1) % save_interval == 0 or epoch == num_epochs_stage3 - 1:
+        save_path = os.path.join(cfg.model_save_dir, f'speed_encoder_epoch_{epoch + 1}.pth')
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': speed_layers.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': loss.item(),  # Save loss as a number
+        }, save_path)
+        print(f"Model saved at epoch {epoch + 1}")
 
 if __name__ == "__main__":
     config = OmegaConf.load("./configs/training/stage3.yaml")

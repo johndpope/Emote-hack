@@ -47,22 +47,30 @@ class SpeedEncoder(ModelMixin):
         return [0.1] * self.num_speed_buckets
 
     def encode_speed(self, head_rotation_speed):
-        # Ensure that the head_rotation_speed is a scalar
-        assert np.isscalar(head_rotation_speed), "head_rotation_speed must be a scalar value"
-        # Check the value of head_rotation_speed is within the expected range, for example (-2, 2)
-        assert -2 <= head_rotation_speed <= 2, "head_rotation_speed must be between -2 and 2"
+        # This method is now designed to handle a tensor of head rotation speeds
+        # head_rotation_speed should be a 1D tensor of shape (batch_size,)
+        assert head_rotation_speed.ndim == 1, "head_rotation_speed must be a 1D tensor"
 
-        speed_vector = np.zeros(self.num_speed_buckets)
+        # Initialize a tensor to hold the encoded speed vectors
+        speed_vectors = torch.zeros((head_rotation_speed.size(0), self.num_speed_buckets), dtype=torch.float32)
+
         for i in range(self.num_speed_buckets):
-            speed_vector[i] = math.tanh((head_rotation_speed - self.bucket_centers[i]) / self.bucket_radii[i] * 3)
-        return speed_vector
+            center = self.bucket_centers[i]
+            radius = self.bucket_radii[i]
+
+            # Element-wise operation to compute the tanh encoding for each speed value in the batch
+            speed_vectors[:, i] = torch.tanh((head_rotation_speed - center) / radius * 3)
+
+        return speed_vectors
 
     def forward(self, head_rotation_speeds):
-        # Assert that head_rotation_speeds is a 1D Tensor
-        assert len(head_rotation_speeds.shape) == 1, "head_rotation_speeds must be a 1D tensor"
-        # Assert that head_rotation_speeds is a tensor of floats
-        assert head_rotation_speeds.dtype == torch.float, "head_rotation_speeds must be a tensor of floats"
-        
-        speed_vectors = [self.encode_speed(speed) for speed in head_rotation_speeds]
-        speed_embeddings = self.mlp(torch.tensor(speed_vectors))
+        # Ensure that head_rotation_speeds is a 1D Tensor of floats
+        assert head_rotation_speeds.ndim == 1, "head_rotation_speeds must be a 1D tensor"
+        assert head_rotation_speeds.dtype == torch.float32, "head_rotation_speeds must be a tensor of floats"
+
+        # Process the batch of head rotation speeds through the encoder
+        speed_vectors = self.encode_speed(head_rotation_speeds)
+
+        # Pass the encoded vectors through the MLP
+        speed_embeddings = self.mlp(speed_vectors)
         return speed_embeddings
