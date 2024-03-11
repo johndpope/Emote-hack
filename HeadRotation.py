@@ -5,7 +5,7 @@ from camera import Camera
 from video import Video
 import math
 from math import cos, sin, pi
-
+from decord import VideoReader
 
 # Initialize MediaPipe Face Mesh.
 mp_face_mesh = mp.solutions.face_mesh
@@ -169,61 +169,57 @@ def get_head_pose(image_path):
 
 
 
-def get_head_pose_velocities_at_frame(video_reader, frame_index, n_previous_frames=2):
-
-    head_poses = []
-    frame_count = 0
+def get_head_pose_velocities_at_frame(video_reader:VideoReader, frame_index, n_previous_frames=2):
 
     # Adjust frame_index if it's larger than the total number of frames
-    video_reader.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Reset to the first frame
-    total_frames = int(video_reader.get(cv2.CAP_PROP_FRAME_COUNT))
+    total_frames = len(video_reader)
     frame_index = min(frame_index, total_frames - 1)
 
-    while frame_count <= frame_index:
-            success, image = video_reader.read()
-            if not success:
-                break
+    # Calculate starting index for previous frames
+    start_index = max(0, frame_index - n_previous_frames)
 
-            if frame_count >= frame_index - n_previous_frames:
-                image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                results = face_mesh.process(image_rgb)
+    head_poses = []
+    for idx in range(start_index, frame_index + 1):
+        image = video_reader[idx].asnumpy()
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        results = face_mesh.process(image_rgb)
 
-                img_h, img_w, _ = image.shape
-                face_3d = []
-                face_2d = []
+        img_h, img_w, _ = image.shape
+        face_3d = []
+        face_2d = []
 
-                if results.multi_face_landmarks:       
-                    for face_landmarks in results.multi_face_landmarks:
-                        key_landmark_positions=[]
-                        for idx, lm in enumerate(face_landmarks.landmark):
-                            if idx in HEAD_POSE_LANDMARKS:
-                                x, y = int(lm.x * img_w), int(lm.y * img_h)
-                                face_2d.append([x, y])
-                                face_3d.append([x, y, lm.z])
+        if results.multi_face_landmarks:       
+            for face_landmarks in results.multi_face_landmarks:
+                key_landmark_positions=[]
+                for idx, lm in enumerate(face_landmarks.landmark):
+                    if idx in HEAD_POSE_LANDMARKS:
+                        x, y = int(lm.x * img_w), int(lm.y * img_h)
+                        face_2d.append([x, y])
+                        face_3d.append([x, y, lm.z])
 
-                                landmark_position = [x,y]
-                                key_landmark_positions.append(landmark_position)
-                        # Convert to numpy arrays
-                        face_2d = np.array(face_2d, dtype=np.float64)
-                        face_3d = np.array(face_3d, dtype=np.float64)
+                        landmark_position = [x,y]
+                        key_landmark_positions.append(landmark_position)
+                # Convert to numpy arrays
+                face_2d = np.array(face_2d, dtype=np.float64)
+                face_3d = np.array(face_3d, dtype=np.float64)
 
-                        # Camera matrix
-                        focal_length = img_w  # Assuming fx = fy
-                        cam_matrix = np.array(
-                            [[focal_length, 0, img_w / 2],
-                            [0, focal_length, img_h / 2],
-                            [0, 0, 1]]
-                        )
+                # Camera matrix
+                focal_length = img_w  # Assuming fx = fy
+                cam_matrix = np.array(
+                    [[focal_length, 0, img_w / 2],
+                    [0, focal_length, img_h / 2],
+                    [0, 0, 1]]
+                )
 
-                        # Distortion matrix
-                        dist_matrix = np.zeros((4, 1), dtype=np.float64)
+                # Distortion matrix
+                dist_matrix = np.zeros((4, 1), dtype=np.float64)
 
-                        # Solve PnP to get rotation vector
-                        success, rot_vec, trans_vec = cv2.solvePnP(
-                            face_3d, face_2d, cam_matrix, dist_matrix
-                        )
-                        yaw, pitch, roll = calculate_pose(key_landmark_positions)
-                        head_poses.append((roll, pitch, yaw))
+                # Solve PnP to get rotation vector
+                success, rot_vec, trans_vec = cv2.solvePnP(
+                    face_3d, face_2d, cam_matrix, dist_matrix
+                )
+                yaw, pitch, roll = calculate_pose(key_landmark_positions)
+                head_poses.append((roll, pitch, yaw))
 
     # Calculate velocities
     head_velocities = []

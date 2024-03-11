@@ -4,7 +4,7 @@ import torch.nn as nn
 #from EMOModel import EMOModel
 from FaceMeshMaskGenerator import FaceMeshMaskGenerator
 from FramesEncoder import FramesEncoder
-from HeadRotation import get_head_pose_velocities_at_frame
+
 from SpeedEncoder import SpeedEncoder
 from VAEEncoder import VAE, ImageEncoder
 from EMODataset import EMODataset
@@ -27,8 +27,8 @@ def main(cfg):
     # # Instantiate the VAE and image encoder
     latent_dim = 256
     embedding_dim = 512
-    vae = VAE(latent_dim)
-    image_encoder = ImageEncoder(embedding_dim)
+    # vae = VAE(latent_dim)
+    # image_encoder = ImageEncoder(embedding_dim)
 
     # # Instantiate the EMOModel
     #emo_model = EMOModel(vae, image_encoder, config)
@@ -48,12 +48,13 @@ def main(cfg):
             sample_rate=cfg.data.sample_rate,
             img_scale=(1.0, 1.0),
             data_dir='./images_folder', 
+            video_dir='/home/oem/Downloads/CelebV-HQ/celebvhq/35666',
             json_file='./data/celebvhq_info.json', 
             stage='stage3', 
             transform=transform)
-    stage3_dataloader = DataLoader(stage3_dataset, batch_size=16, shuffle=True, num_workers=4)
+    stage3_dataloader = DataLoader(stage3_dataset, batch_size=16, shuffle=True, num_workers=1)
 
-    num_speed_buckets = 10
+    num_speed_buckets = 9
     speed_embedding_dim = 64
 
     speed_layers = SpeedEncoder(num_speed_buckets, speed_embedding_dim)
@@ -71,15 +72,13 @@ def main(cfg):
     # Stage 3: Speed Training
     for epoch in range(num_epochs_stage3):
         for batch in stage3_dataloader:
-            video_reader = batch['video_reader']
-            video_length = batch['video_length'] 
-
-            rnd_idx = random.randint(0, video_length-1)
-            head_rotation_speeds = get_head_pose_velocities_at_frame(video_reader,rnd_idx,2)
+      
+            head_rotation_speeds = batch["head_rotation_speeds"]
             print("head_rotation_speeds:",head_rotation_speeds)
-        
+
             # Forward pass through speed layers
-        #     speed_output = speed_layers(head_rotation_speeds)
+            speed_output = speed_layers(head_rotation_speeds)
+            print("speed_output:",speed_output)
             
         #     # Calculate loss and perform optimization
         #     loss = criterion(temporal_output, speed_output)  # Define appropriate loss function

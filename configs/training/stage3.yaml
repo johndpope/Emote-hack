@@ -4,7 +4,7 @@ data:
   train_height: 512 
   sample_margin: 30  
   sample_rate: 4 
-  n_sample_frames: 24
+  n_sample_frames: 2
 
 solver:
   gradient_accumulation_steps: 1
