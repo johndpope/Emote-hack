@@ -4,15 +4,40 @@ import random
 import torch
 import torchvision.transforms as transforms
 from PIL import Image
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from Wav2VecFeatureExtractor import Wav2VecFeatureExtractor
-from HeadRotation import get_head_pose_velocities
 from decord import VideoReader
 from typing import List
-import numpy as np
+
+
+
+class EmoVideoReader(VideoReader):
+
+    def __init__(self,pixel_transform,cond_transform,state=None):
+        super.__init__()
+        
+        self.pixel_transform = pixel_transform
+        self.cond_transform = cond_transform
+        self.state = state
+
+    def augmentedImageAtFrame(self,index):
+
+        img = self[index]
+        return self.augmentation(img,self.pixel_transform,self.state)
+    
+    def augmentation(self, images, transform, state=None):
+            if state is not None:
+                torch.set_rng_state(state)
+            if isinstance(images, List):
+                transformed_images = [transform(img) for img in images]
+                ret_tensor = torch.stack(transformed_images, dim=0)  # (f, c, h, w)
+            else:
+                ret_tensor = transform(images)  # (c, h, w)
+            return ret_tensor
+    
 
 class EMODataset(Dataset):
-    def __init__(self, data_dir,sample_rate,n_sample_frames, width,  height,  img_scale=(1.0, 1.0),  img_ratio=(0.9, 1.0),  drop_ratio=0.1, audio_dir, json_file, stage='stage1', transform=None):
+    def __init__(self, data_dir,sample_rate,n_sample_frames, width,  height,  img_scale=(1.0, 1.0),  img_ratio=(0.9, 1.0),  drop_ratio=0.1,  json_file="", stage='stage1', transform=None):
         self.sample_rate = sample_rate
         self.n_sample_frames = n_sample_frames
         self.width = width
@@ -21,7 +46,6 @@ class EMODataset(Dataset):
         self.img_ratio = img_ratio
 
         self.data_dir = data_dir
-        self.audio_dir = audio_dir
         self.transform = transform
         self.stage = stage
         self.feature_extractor = Wav2VecFeatureExtractor(model_name='facebook/wav2vec2-base-960h', device='cuda')
@@ -86,7 +110,7 @@ class EMODataset(Dataset):
 
             video_reader = VideoReader(mp4_path)
             video_length = len(video_reader)
-            rnd_idx = random.randint(0, video_length - clip_length)
+            rnd_idx = random.randint(0, video_length-1)
             ref_img = Image.fromarray(video_reader[rnd_idx].asnumpy())
             #reference_frame = frames[0]  # Use the first frame as the reference frame
    
@@ -120,27 +144,19 @@ class EMODataset(Dataset):
             sample = {
                 "f_idx" : backbone_frame,
                 "video_id": video_id,
-                "video_frames": video_images,
+                "video_reader": video_reader,
                 "audio_features": audio_features,
-                "pixel_values_ref_img": pixel_values_ref_img
+                # "pixel_values_ref_img": pixel_values_ref_img
             }
 
         elif self.stage == 'stage3':
             # Stage 3: Speed Training
-            video_frames = frames[4:8]  # Use the same frames as in Stage 2
-
-            video_frame_paths = [os.path.join(frame_folder, frame) for frame in video_frames]
-            video_images = [Image.open(path) for path in video_frame_paths]
-
-            if self.transform:
-                video_images = [self.transform(image) for image in video_images]
-
-            head_rotation_speeds = get_head_pose_velocities(video_frame_paths)
+            video_reader = VideoReader(mp4_path)
+            video_length = len(video_reader)
 
             sample = {
-                "video_id": video_id,
-                "video_frames": video_images,
-                "head_rotation_speeds": head_rotation_speeds
+                "video_reader": video_reader,
+                "video_length": video_length
             }
 
         return sample

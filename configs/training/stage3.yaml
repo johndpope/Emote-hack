@@ -1,8 +1,10 @@
 data:
   train_bs: 1
-  train_width: 768 
-  train_height: 480 
+  train_width: 512 
+  train_height: 512 
   sample_margin: 30  
+  sample_rate: 4 
+  n_sample_frames: 24
 
 solver:
   gradient_accumulation_steps: 1
