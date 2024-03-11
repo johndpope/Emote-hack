@@ -1,79 +1,71 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
-class VAE(nn.Module):
-    def __init__(self, latent_dim):
-        super(VAE, self).__init__()
-        self.latent_dim = latent_dim
-        
-        # Encoder
-        self.encoder = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(),
-            nn.Flatten(),
-            nn.Linear(128 * 8 * 8, 2 * latent_dim)
-        )
-        
-        # Decoder
-        self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, 128 * 8 * 8),
-            nn.Unflatten(1, (128, 8, 8)),
-            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(32, 3, kernel_size=4, stride=2, padding=1),
-            nn.Tanh()
-        )
-    
-    def encode(self, x):
-        latent_params = self.encoder(x)
-        mu, log_var = latent_params.chunk(2, dim=-1)
-        return mu, log_var
-    
-    def decode(self, z):
-        reconstructed = self.decoder(z)
-        return reconstructed
-    
+class Encoder(nn.Module):
+    def __init__(self, input_channels, latent_dim):
+        super(Encoder, self).__init__()
+        # Simple convolutional architecture
+        self.conv1 = nn.Conv2d(input_channels, 32, kernel_size=4, stride=2, padding=1)  # Output size: [32, img_size/2, img_size/2]
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=1)  # Output size: [64, img_size/4, img_size/4]
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1)  # Output size: [128, img_size/8, img_size/8]
+        self.conv4 = nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1)  # Output size: [256, img_size/16, img_size/16]
+        self.fc_mu = nn.Linear(256 * (img_size // 16) * (img_size // 16), latent_dim)
+        self.fc_logvar = nn.Linear(256 * (img_size // 16) * (img_size // 16), latent_dim)
+
     def forward(self, x):
-        mu, log_var = self.encode(x)
-        z = self.reparameterize(mu, log_var)
-        reconstructed = self.decode(z)
-        return reconstructed, mu, log_var
-    
-    def reparameterize(self, mu, log_var):
-        std = torch.exp(0.5 * log_var)
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+        x = F.relu(self.conv4(x))
+        x = torch.flatten(x, start_dim=1)
+        mu = self.fc_mu(x)
+        logvar = self.fc_logvar(x)
+        return mu, logvar
+
+
+class Decoder(nn.Module):
+    def __init__(self, latent_dim, output_channels):
+        super(Decoder, self).__init__()
+        # The output size of the last deconvolution would be [output_channels, img_size, img_size]
+        self.fc = nn.Linear(latent_dim, 256 * (img_size // 16) * (img_size // 16))
+        self.deconv1 = nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1)
+        self.deconv2 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)
+        self.deconv3 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1)
+        self.deconv4 = nn.ConvTranspose2d(32, output_channels, kernel_size=4, stride=2, padding=1)
+
+    def forward(self, z):
+        z = self.fc(z)
+        z = z.view(z.size(0), 256, img_size // 16, img_size // 16)  # Reshape z to (batch_size, 256, img_size/16, img_size/16)
+        z = F.relu(self.deconv1(z))
+        z = F.relu(self.deconv2(z))
+        z = F.relu(self.deconv3(z))
+        reconstruction = torch.sigmoid(self.deconv4(z))  # Use sigmoid for normalizing the output to [0, 1]
+        return reconstruction
+
+
+class VariationalAutoEncoder(nn.Module):
+    def __init__(self, input_channels, latent_dim):
+        super(VariationalAutoEncoder, self).__init__()
+        self.encoder = Encoder(input_channels, latent_dim)
+        self.decoder = Decoder(latent_dim, input_channels)
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
-        z = mu + eps * std
-        return z
+        return mu + eps * std
 
-class ImageEncoder(nn.Module):
-    def __init__(self, embedding_dim):
-        super(ImageEncoder, self).__init__()
-        self.embedding_dim = embedding_dim
-        
-        self.encoder = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(256, 512, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool2d((1, 1)),
-            nn.Flatten(),
-            nn.Linear(512, embedding_dim)
-        )
-    
     def forward(self, x):
-        embeddings = self.encoder(x)
-        return embeddings
+        mu, logvar = self.encoder(x)
+        z = self.reparameterize(mu, logvar)
+        return self.decoder(z), mu, logvar
 
+
+    def vae_loss(recon_x, x, mu, logvar):
+        # Reconstruction loss (MSE or BCE, depending on the final activation of the decoder)
+        recon_loss = F.mse_loss(recon_x, x, reduction='sum')
+        
+        # KL divergence loss
+        kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        
+        return recon_loss + kl_loss
