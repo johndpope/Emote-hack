@@ -2,7 +2,7 @@
 using chatgpt to reverse engineer code from HumanAIGC/EMO white paper. WIP
 
 
-Just copy and paste the html from here in chatgpt chat
+Just copy and paste the html from here in chatgpt (custom chat) https://chat.openai.com/g/g-UzGVIbBpB-diffuser-wizard
 https://arxiv.org/html/2402.17485v1
 
 
@@ -20,3 +20,8 @@ use extractframes.py
 video_path = 'M2Ohb0FAaJU_1.mp4'
 extract_and_save_frames(video_path,'.')
 ```
+
+
+custom chatgpt (using diffusers models / pipelines)
+https://chat.openai.com/g/g-UzGVIbBpB-diffuser-wizard
+prompt - https://gist.github.com/johndpope/04879444d0979f244fb88c4929b989e9
