@@ -158,8 +158,8 @@ class EMODataset(Dataset):
      
 
             rnd_idx = random.randint(0, video_length-1)
-            head_rotation_speeds = get_head_pose_velocities_at_frame(video_reader,rnd_idx ,2)
-            print("head_rotation_speeds:",head_rotation_speeds)
+            head_rotation_speeds = get_head_pose_velocities_at_frame(video_reader,rnd_idx ,1)
+            #print("head_rotation_speeds:",head_rotation_speeds)
             sample = {
                 "head_rotation_speeds": head_rotation_speeds,
             }
