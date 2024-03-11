@@ -1,108 +1,51 @@
-import torch
-import torch.nn as nn
 import cv2
-import mediapipe as mp
-import torch
 import numpy as np
-from FaceMeshMaskGenerator import FaceMeshMaskGenerator
+import mediapipe as mp
 
-from FramesEncoder import FramesEncoder
+def detect_face_region(image):
+    # Initialize MediaPipe face detection
+    mp_face_detection = mp.solutions.face_detection
+    face_detection = mp_face_detection.FaceDetection(min_detection_confidence=0.5)
 
-class FaceLocator(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(FaceLocator, self).__init__()
-        # Define a simple convolutional network to encode the mask
-        # Assuming the mask is a 1-channel image (binary mask)
-        self.encoder = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True)
-        )
+    # Convert the BGR image to RGB
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    def forward(self, mask):
-        # Assume mask is a 4D tensor with shape (batch_size, channels, height, width)
-        return self.encoder(mask)
+    # Perform face detection
+    results = face_detection.process(image_rgb)
 
-class Backbone(nn.Module):
-    def __init__(self):
-        super(Backbone, self).__init__()
-        # Define the backbone network architecture
-        # Placeholder for the actual model
-        self.backbone = nn.Identity()  # Replace with the actual backbone network
+    # Check if exactly one face is detected
+    if not results.detections or len(results.detections) != 1:
+        raise ValueError("Exactly one face must be detected in the image.")
 
-    def forward(self, x):
-        return self.backbone(x)
+    # Extract the bounding box of the face
+    detection = results.detections[0]
+    bbox = detection.location_data.relative_bounding_box
+    h, w, _ = image.shape
+    x, y, w, h = int(bbox.xmin * w), int(bbox.ymin * h), int(bbox.width * w), int(bbox.height * h)
+    face_region = image[y:y+h, x:x+w]
 
-class VideoEditingModel(nn.Module):
-    def __init__(self, mask_channels, mask_encoder_out_channels):
-        super(VideoEditingModel, self).__init__()
-        self.face_locator = FaceLocator(mask_channels, mask_encoder_out_channels)
-        self.backbone = Backbone()
+    return face_region
 
-    def forward(self, video_frames, mask):
-        # Encode the mask using the Face Locator
-        encoded_mask = self.face_locator(mask)
-        
-        # Add the encoded mask to each video frame's latent representation
-        # Assuming video_frames is a tensor with shape (batch_size, channels, num_frames, height, width)
-        # and encoded_mask is a tensor with shape (batch_size, channels, height, width)
-        # We need to unsqueeze the time dimension for encoded_mask to make it broadcastable
-        encoded_mask = encoded_mask.unsqueeze(2)  # Shape: (batch_size, channels, 1, height, width)
-        
-        # Adding the mask to the video frames' latent representations
-        combined_input = video_frames + encoded_mask
-        
-        # Flatten the temporal dimension into the batch dimension for processing with the backbone
-        batch_size, channels, num_frames, height, width = combined_input.shape
-        combined_input = combined_input.view(batch_size * num_frames, channels, height, width)
-        
-        # Pass the combined input through the backbone network
-        processed_frames = self.backbone(combined_input)
-        
-        # Reshape the output to separate the temporal dimension from the batch dimension
-        processed_frames = processed_frames.view(batch_size, num_frames, channels, height, width)
-        
-        return processed_frames
+def generate_noisy_latent(face_region, latent_dim):
+    # Resize face region to match latent dimension
+    resized_face = cv2.resize(face_region, (latent_dim, latent_dim))
 
-# Example usage:
-batch_size = 1
-num_frames = 10
-height, width = 256, 256
-mask_channels = 1
-mask_encoder_out_channels = 64
+    # Normalize face region to range [0, 1]
+    normalized_face = resized_face.astype(np.float32) / 255.0
 
-# Create random video frames and mask
-frames_encoder = FramesEncoder(use_feature_extractor=True)
-video_frames = torch.rand(batch_size, 3, num_frames, height, width)  # Example video frames tensor
-video_frame_tensor = frames_encoder.encode("images_folder/M2Ohb0FAaJU_1")
+    # Generate random noise
+    noise = np.random.normal(0, 1, (latent_dim, latent_dim, 3))
 
-mask = torch.rand(batch_size, mask_channels, height, width)  # Example mask tensor
+    # Add noise to the normalized face region
+    noisy_latent = normalized_face + noise
 
-# Create the video editing model
-model = VideoEditingModel(mask_channels, mask_encoder_out_channels)
+    # Clip values to range [0, 1]
+    noisy_latent = np.clip(noisy_latent, 0, 1)
 
-# Process the video frames with the mask
-output = model(video_frames, mask)
+    return noisy_latent
 
-
-# Initialize mediapipe face detection and face mesh models.
-mp_face_detection = mp.solutions.face_detection
-mp_face_mesh = mp.solutions.face_mesh
-
-# Read in the image
-image = cv2.imread('/images_folder/M2Ohb0FAaJU_1/frame_0000.jpg')
-
-# Convert the image to RGB
-image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-mask_generator = FaceMeshMaskGenerator()
-mask_tensor = mask_generator.generate_mask(image)
-
-
-# Add batch and channel dimensions
-mask_tensor = mask_tensor.unsqueeze(0).unsqueeze(0)  # Shape: (1, 1, H, W)
-
-# Use the mask tensor in your PyTorch model
-# For example:
-# model_output = your_pytorch_model(some_input_tensor, mask_tensor)
-
+# Example usage
+image = cv2.imread('path/to/image.jpg')
+face_region = detect_face_region(image)
+latent_dim = 512
+noisy_latent = generate_noisy_latent(face_region, latent_dim)

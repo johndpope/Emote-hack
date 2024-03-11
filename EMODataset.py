@@ -79,6 +79,7 @@ class EMODataset(Dataset):
         frame_folder = os.path.join(self.data_dir, f"{ytb_id}_{video_id.split('_')[-1]}")
         mp4_path = os.path.join(self.audio_dir, f"{ytb_id}_{video_id.split('_')[-1]}.mp4")
         frames = sorted([frame for frame in os.listdir(frame_folder) if frame.endswith(".jpg")])
+        backbone_frame = random.choice(frames)  # Randomly select a frame for the Backbone Network
 
         if self.stage == 'stage1':
             # Stage 1: Image Pretraining
@@ -88,8 +89,7 @@ class EMODataset(Dataset):
             rnd_idx = random.randint(0, video_length - clip_length)
             ref_img = Image.fromarray(video_reader[rnd_idx].asnumpy())
             #reference_frame = frames[0]  # Use the first frame as the reference frame
-            backbone_frame = random.choice(frames)  # Randomly select a frame for the Backbone Network
-
+   
          
             backbone_image = Image.open(os.path.join(frame_folder, backbone_frame))
 
@@ -105,56 +105,23 @@ class EMODataset(Dataset):
 
         elif self.stage == 'stage2':
             # Stage 2: Video Training
-            motion_frames = frames[:4]  # Use the first 4 frames as motion frames
-            video_frames = frames[4:8]  # Use the next 4 frames for video training
 
             video_reader = VideoReader(mp4_path)
-            motion_frame_paths = [os.path.join(frame_folder, frame) for frame in motion_frames]
-            video_frame_paths = [os.path.join(frame_folder, frame) for frame in video_frames]
+            
+            # Extract audio features for the specific frame
+            audio_features = self.feature_extractor.extract_features_for_frame(mp4_path, backbone_frame, m=2)
 
-            motion_images = [Image.open(path) for path in motion_frame_paths]
-            video_images = [Image.open(path) for path in video_frame_paths]
-
-            if self.transform:
-                motion_images = [self.transform(image) for image in motion_images]
-                video_images = [self.transform(image) for image in video_images]
-
-            audio_features = self.feature_extractor.extract_features_from_mp4(mp4_path, m=2, n=2)
-
-            video_length = len(video_reader)
-
-            clip_length = min(
-                video_length, (self.n_sample_frames - 1) * self.sample_rate + 1
-            )
-            start_idx = random.randint(0, video_length - clip_length)
-            batch_index = np.linspace(
-                start_idx, start_idx + clip_length - 1, self.n_sample_frames, dtype=int
-            ).tolist()
-
-            # read frames
-            vid_pil_image_list = []
-            for index in batch_index:
-                img = video_reader[index]
-                vid_pil_image_list.append(Image.fromarray(img.asnumpy()))
-
-
-            ref_img_idx = random.randint(0, video_length - 1)
-            ref_img = Image.fromarray(video_reader[ref_img_idx].asnumpy())
+            ref_img = Image.fromarray(video_reader[backbone_frame].asnumpy())
 
             # transform
             state = torch.get_rng_state()
-            pixel_values_vid = self.augmentation(
-                vid_pil_image_list, self.pixel_transform, state
-            )
-           
             pixel_values_ref_img = self.augmentation(ref_img, self.pixel_transform, state)
             
             sample = {
+                "f_idx" : backbone_frame,
                 "video_id": video_id,
-                "motion_frames": motion_images,
                 "video_frames": video_images,
                 "audio_features": audio_features,
-                "pixel_values_vid": pixel_values_vid,
                 "pixel_values_ref_img": pixel_values_ref_img
             }
 

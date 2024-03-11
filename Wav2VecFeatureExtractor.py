@@ -78,3 +78,68 @@ class Wav2VecFeatureExtractor:
 
         all_features = torch.stack(all_features, dim=0)
         return all_features
+    
+
+
+
+    def extract_features_for_frame(self, video_path, frame_index, m=2):
+        """
+        Extract audio features for a specific frame from an MP4 file using Wav2Vec 2.0.
+
+        Args:
+            video_path (str): Path to the MP4 video file.
+            frame_index (int): The index of the frame to extract features for.
+            m (int): The number of frames before and after the current frame to include.
+
+        Returns:
+            torch.Tensor: Features extracted from the audio for the specified frame.
+        """
+        # Create the audio file path from the video file path
+        audio_path = os.path.splitext(video_path)[0] + '.wav'
+
+        # Check if the audio file already exists
+        if not os.path.exists(audio_path):
+            # Extract audio from video
+            video_clip = VideoFileClip(video_path)
+            video_clip.audio.write_audiofile(audio_path)
+
+        # Load the audio file
+        waveform, sample_rate = sf.read(audio_path)
+
+        # Check if we need to resample
+        if sample_rate != self.processor.feature_extractor.sampling_rate:
+            waveform = librosa.resample(np.float32(waveform), orig_sr=sample_rate, target_sr=self.processor.feature_extractor.sampling_rate)
+            sample_rate = self.processor.feature_extractor.sampling_rate
+
+        # Ensure waveform is a 1D array for a single-channel audio
+        if waveform.ndim > 1:
+            waveform = waveform.mean(axis=1)  # Taking mean across channels for simplicity
+
+        # Process the audio to extract features
+        input_values = self.processor(waveform, sampling_rate=sample_rate, return_tensors="pt").input_values
+        input_values = input_values.to(self.device)
+
+        # Pass the input_values to the model
+        with torch.no_grad():
+            hidden_states = self.model(input_values).last_hidden_state
+
+        num_frames = hidden_states.shape[1]
+        feature_dim = hidden_states.shape[2]
+
+        # Concatenate nearby frame features
+        all_features = []
+        start_frame = max(frame_index - m, 0)
+        end_frame = min(frame_index + m + 1, num_frames)
+        frame_features = hidden_states[0, start_frame:end_frame, :].flatten()
+        
+        # Add padding if necessary
+        if frame_index - m < 0:
+            front_padding = torch.zeros((m - frame_index) * feature_dim, device=self.device)
+            frame_features = torch.cat((front_padding, frame_features), dim=0)
+        if frame_index + m + 1 > num_frames:
+            end_padding = torch.zeros(((frame_index + m + 1) - num_frames) * feature_dim, device=self.device)
+            frame_features = torch.cat((frame_features, end_padding), dim=0)
+        
+        all_features.append(frame_features)
+        
+        return torch.stack(all_features)
