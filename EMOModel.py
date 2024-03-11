@@ -120,8 +120,12 @@ class EMOModel(ModelMixin):
         # Speed Controller
         self.speed_encoder = SpeedEncoder(config.num_speed_buckets, config.speed_embedding_dim)
 
+        config = {
+            "audio_feature_dim": 768,
+            "audio_num_layers": 3
+        }
         # Audio Attention Layers
-        self.audio_attention_layers = AudioAttentionLayers(feature_dim=config.audio_feature_dim, num_layers=config.audio_num_layers)
+        self.audio_attention_layers = AudioAttentionLayers(feature_dim=config["audio_feature_dim"], num_layers=config["audio_num_layers"])
 
 
 def forward(self, noisy_latents, timesteps, ref_image, motion_frames, audio_features, head_rotation_speeds):
