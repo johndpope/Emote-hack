@@ -1,6 +1,7 @@
 import cv2
 import mediapipe as mp
 import numpy as np
+import torch
 from camera import Camera
 from video import Video
 import math
@@ -180,7 +181,14 @@ def get_head_pose_velocities_at_frame(video_reader:VideoReader, frame_index, n_p
 
     head_poses = []
     for idx in range(start_index, frame_index + 1):
-        image = video_reader[idx].asnumpy()
+        # idx is the frame index you want to access
+        frame_tensor = video_reader[idx]
+
+        #  check emodataset decord.bridge.set_bridge('torch')  # Optional: This line sets decord to directly output PyTorch tensors.
+        # Assert that frame_tensor is a PyTorch tensor
+        assert isinstance(frame_tensor, torch.Tensor), "Expected a PyTorch tensor"
+
+        image = video_reader[idx].numpy()
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         results = face_mesh.process(image_rgb)
 

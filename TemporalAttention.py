@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 from magicanimate.models.motion_module import TemporalTransformer3DModel
 
+
+
 class TemporalSelfAttention(nn.Module):
     def __init__(self, feature_dim):
         super().__init__()

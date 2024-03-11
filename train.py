@@ -25,17 +25,30 @@ from tqdm import tqdm
 
 def custom_collate(batch):
     collated_batch = {}
-    for key in batch[0]:
-        elements = [d[key] for d in batch]
-        # Check if the elements are tensors
-        if all(isinstance(el, torch.Tensor) for el in elements):
-            collated_batch[key] = torch.stack(elements)
+
+    for key in batch[0].keys():
+        # Check if the elements under the current key are lists
+        if isinstance(batch[0][key], list):
+            # Convert each list to a tensor
+            tensors = [torch.tensor(elem[key]) for elem in batch]
+
+            # Assert that all tensors are of the same shape
+            first_tensor_shape = tensors[0].shape
+            assert all(tensor.shape == first_tensor_shape for tensor in tensors), f"Shape mismatch in batch for key {key}"
+
+            # Stack the tensors
+            collated_batch[key] = torch.stack(tensors)
         else:
-            # Handle other data types (e.g., lists) appropriately
-            # For instance, if elements are lists of different lengths, you might pad them
-            # or handle them in a way that's appropriate for your application
-            pass
+            # Assert that all elements are tensors and have the same shape
+            assert all(isinstance(elem[key], torch.Tensor) for elem in batch), f"Not all elements are tensors for key {key}"
+            first_tensor_shape = batch[0][key].shape
+            assert all(elem[key].shape == first_tensor_shape for elem in batch), f"Shape mismatch in batch for key {key}"
+
+            # Stack the tensors
+            collated_batch[key] = torch.stack([elem[key] for elem in batch])
+
     return collated_batch
+
 
 # BACKBONE ~ MagicAnimate class
 def main(cfg):
@@ -85,38 +98,31 @@ def main(cfg):
 
 
     num_epochs_stage3 = 2
-
-    save_interval = 5  # Define how often you want to save the model (every 5 epochs in this case)
-
+    save_interval = 1  # Define how often you want to save the model (every 5 epochs in this case)
 
     # Stage 3: Speed Training
-    for epoch in tqdm(range(num_epochs_stage3), desc='Epochs', unit='epoch'):
-         # Initialize a progress bar for the batches in the current epoch
-        batch_progress = tqdm(stage3_dataloader, desc=f'Epoch {epoch + 1}', leave=False, unit='batch')
+    for epoch in range(num_epochs_stage3):
+        for batch in stage3_dataloader:
+            if "all_head_rotation_speeds" in batch:
+                # Loop through each video's frames in the batch
+                for video_frames in batch["all_head_rotation_speeds"]:
+                    for frame_speeds in video_frames:
+                        # Check if the current frame has valid speed data
+                        if frame_speeds.nelement() > 0:
+                            # Process each frame individually
+                            predicted_speeds = speed_layers(frame_speeds.unsqueeze(0))
 
-        for batch in batch_progress:
-            if len(batch.keys()) > 1:  # Just to check a couple of batches
-        
-                # print("batch:",batch)
-                # Extract head rotation speeds from the batch
-                head_rotation_speeds = batch["head_rotation_speeds"]  # Ground truth
+                            # Compute loss
+                            loss = criterion(predicted_speeds, frame_speeds.unsqueeze(0))
 
-                # Perform a forward pass through the SpeedEncoder
-                # The SpeedEncoder's forward method now directly takes the head rotation speeds
-                predicted_speeds = speed_layers(head_rotation_speeds)
+                            # Backpropagation and optimization
+                            optimizer.zero_grad()
+                            loss.backward()
+                            optimizer.step()
 
-                # Compute loss
-                # The loss is calculated between the predicted speeds and the ground truth
-                loss = criterion(predicted_speeds, head_rotation_speeds)
+                            # Optionally print out loss here for monitoring
+                            print("loss:", loss.item())
 
-                # Backpropagation and optimization
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-
-                # Optionally print out loss here for monitoring
-                print(f"Epoch: {epoch}, Loss: {loss.item()}")
-        print('.')
         # Save the model at specified intervals
         if (epoch + 1) % save_interval == 0 or epoch == num_epochs_stage3 - 1:
             save_path = os.path.join(cfg.model_save_dir, f'speed_encoder_epoch_{epoch + 1}.pth')
@@ -124,7 +130,7 @@ def main(cfg):
                 'epoch': epoch,
                 'model_state_dict': speed_layers.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'loss': loss.item(),  # Save loss as a number
+                'loss': loss.item(),
             }, save_path)
             print(f"Model saved at epoch {epoch + 1}")
 

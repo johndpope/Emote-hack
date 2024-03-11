@@ -7,8 +7,11 @@ from PIL import Image
 from torch.utils.data import Dataset
 from Wav2VecFeatureExtractor import Wav2VecFeatureExtractor
 from decord import VideoReader
+import decord
 from typing import List
 from HeadRotation import get_head_pose_velocities_at_frame
+# Use decord's CPU or GPU context
+# For GPU: decord.gpu(0)
 
 
 class EmoVideoReader(VideoReader):
@@ -82,6 +85,11 @@ class EMODataset(Dataset):
 
         self.video_ids = list(self.celebvhq_info['clips'].keys())
 
+        decord.bridge.set_bridge('torch')  # Optional: This line sets decord to directly output PyTorch tensors.
+        self.ctx = decord.cpu()
+
+
+
     def __len__(self):
         return len(self.video_ids)
 
@@ -151,17 +159,42 @@ class EMODataset(Dataset):
                 # "pixel_values_ref_img": pixel_values_ref_img
             }
 
+
         elif self.stage == 'stage3':
             # Stage 3: Speed Training
-            video_reader = VideoReader(mp4_path)
-            video_length = len(video_reader)
-     
+            video_reader = VideoReader(mp4_path, ctx=self.ctx)
 
-            rnd_idx = random.randint(0, video_length-1)
-            head_rotation_speeds = get_head_pose_velocities_at_frame(video_reader,rnd_idx ,1)
-            #print("head_rotation_speeds:",head_rotation_speeds)
-            sample = {
-                "head_rotation_speeds": head_rotation_speeds,
-            }
+            video_length = len(video_reader)
+            print("video_length:", video_length)
+            print(f"video_id:   https://youtube.com/watch?v={video_id}")
+            # Initialize an empty list to collect head rotation speeds for multiple frames
+            all_head_rotation_speeds = []
+
+            # Define the number of frames to process from each video
+            # For example, process every 10th frame
+            frame_step = 10  
+
+            for frame_idx in range(0, video_length, frame_step):
+                # Calculate head rotation speeds at the current frame
+                head_rotation_speeds = get_head_pose_velocities_at_frame(video_reader, frame_idx, 1)
+
+                # Check if head rotation speeds are successfully calculated
+                if head_rotation_speeds:
+                    all_head_rotation_speeds.append(head_rotation_speeds)
+                else:
+                    # Provide a default value if no speeds were calculated
+                    #expected_speed_vector_length = 3
+                    #default_speeds = torch.zeros(1, expected_speed_vector_length)  # Shape [1, 3]
+                    default_speeds = (0.0, 0.0, 0.0)  # List containing one tuple with three elements
+                    all_head_rotation_speeds.append(default_speeds)
+
+            
+            # Convert list of lists to a tensor
+   
+            sample = {"all_head_rotation_speeds": all_head_rotation_speeds}
+        
+
+            return sample
+
 
         return sample
