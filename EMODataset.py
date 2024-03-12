@@ -10,11 +10,12 @@ from decord import VideoReader
 import decord
 from typing import List
 from HeadRotation import get_head_pose_velocities_at_frame
-import cv2 
 from FaceLocator import FaceMaskGenerator 
 # Use decord's CPU or GPU context
 # For GPU: decord.gpu(0)
-
+decord.logging.set_level(decord.logging.ERROR)
+os.environ["OPENCV_LOG_LEVEL"]="FATAL"
+import cv2
 
 class EmoVideoReader(VideoReader):
 
@@ -120,7 +121,6 @@ class EMODataset(Dataset):
         if self.stage == 'stage1':
             video_reader = VideoReader(mp4_path, ctx=self.ctx)
             video_length = len(video_reader)
-
             all_frame_images = []
             all_frame_masks = []
 

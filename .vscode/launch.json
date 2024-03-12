@@ -8,7 +8,7 @@
             "name": "Python Debugger: Current File",
             "type": "debugpy",
             "request": "launch",
-            "program": "train.py",
+            "program": "train_facelocator.py",
             "console": "integratedTerminal"
         }
     ]

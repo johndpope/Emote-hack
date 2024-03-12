@@ -100,7 +100,7 @@ def main(cfg):
             accelerator.backward(loss)
             optimizer.step()
 
-            # Calculate signal-to-noise ratio using EMOAnimationPipeline
+            # Calculate signal-to-noise ratio using EMOAnimationPipeline - this is wrong.....
             with torch.no_grad():
                 generated_video = emo_pipeline(
                     prompt=batch['prompt'],

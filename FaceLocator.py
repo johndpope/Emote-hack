@@ -5,7 +5,9 @@ import mediapipe as mp
 
 import torch.nn as nn
 import torch.nn.functional as F
+import os
 
+os.environ["OPENCV_LOG_LEVEL"]="FATAL"
 
 class FaceLocator(nn.Module):
     def __init__(self):
@@ -99,18 +101,22 @@ class FaceMaskGenerator:
     def __init__(self):
         self.mp_face_detection = mp.solutions.face_detection
         self.mp_face_mesh = mp.solutions.face_mesh
+        # Initialize FaceDetection once here
+        self.face_detection = self.mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+
+    def __del__(self):
+        # Optional: If you want to explicitly release resources
+        del self.face_detection
 
     def generate_mask(self, image):
-
         # Convert image to RGB
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         # Create a blank mask with the same dimensions as the image
         mask = np.zeros(image.shape[:2], dtype=np.uint8)
 
-        # Detect faces
-        with self.mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5) as face_detection:
-            detection_results = face_detection.process(image_rgb)
+        # Detect faces - reusing the initialized face_detection
+        detection_results = self.face_detection.process(image_rgb)
 
         # If faces are detected, find the face landmarks.
         if detection_results.detections:
