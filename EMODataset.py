@@ -10,6 +10,8 @@ from decord import VideoReader
 import decord
 from typing import List
 from HeadRotation import get_head_pose_velocities_at_frame
+import cv2 
+from FaceLocator import FaceMaskGenerator 
 # Use decord's CPU or GPU context
 # For GPU: decord.gpu(0)
 
@@ -53,7 +55,7 @@ class EMODataset(Dataset):
         self.stage = stage
         self.feature_extractor = Wav2VecFeatureExtractor(model_name='facebook/wav2vec2-base-960h', device='cuda')
 
-
+        self.face_mask_generator = FaceMaskGenerator()
         self.pixel_transform = transforms.Compose(
             [
                 transforms.RandomResizedCrop(
@@ -116,26 +118,29 @@ class EMODataset(Dataset):
 
 
         if self.stage == 'stage1':
-            # Stage 1: Image Pretraining
+            video_reader = VideoReader(mp4_path, ctx=self.ctx)
+            video_length = len(video_reader)
 
-            # video_reader = VideoReader(mp4_path)
-            # video_length = len(video_reader)
-            # rnd_idx = random.randint(0, video_length-1)
-            # ref_img = Image.fromarray(video_reader[rnd_idx].asnumpy())
-            #reference_frame = frames[0]  # Use the first frame as the reference frame
-   
-         
-         #   backbone_image = Image.open(os.path.join(frame_folder, backbone_frame))
+            all_frame_images = []
+            all_frame_masks = []
 
-            # if self.transform:
-            #     ref_img = self.transform(ref_img)
-            #     backbone_image = self.transform(backbone_image)
+            for frame_idx in range(video_length):
+                img = video_reader[frame_idx].numpy()
+                all_frame_images.append(img)
+
+                # Convert the image from BGR to RGB
+                img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+                # Generate the mask using the face mask generator
+                mask = self.face_mask_generator.generate_mask(img_rgb)
+                all_frame_masks.append(mask)
 
             sample = {
                 "video_id": video_id,
-                "reference_image": 0,
-                "backbone_image": []
+                "images": all_frame_images,
+                "masks": all_frame_masks
             }
+
 
         elif self.stage == 'stage2':
             # Stage 2: Video Training
