@@ -16,8 +16,8 @@ from typing import List, Dict, Any
 
 
 
-
-def padded_collate(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+# works but complicated 
+def gpu_padded_collate(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
 
     assert isinstance(batch, list), "Batch should be a list"
 
@@ -55,20 +55,68 @@ def padded_collate(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     return {'images': images_tensor, 'masks': masks_tensor}
 
 
+
+
+def collate_fn(batch):
+    # Define the maximum number of frames you want to consider per video
+    max_frames_per_video = 100
+    
+    # Initialize lists to hold the processed images and masks
+    batch_images = []
+    batch_masks = []
+    batch_video_ids = []
+    
+    # Process each item in the batch
+    for item in batch:
+        video_id = item['video_id']
+        images = item['images']
+        masks = item['masks']
+        
+        # Trim or pad the images and masks to have a uniform number of frames
+        num_frames = len(images)
+        
+        if num_frames > max_frames_per_video:
+            # Select the first 'max_frames_per_video' frames
+            images = images[:max_frames_per_video]
+            masks = masks[:max_frames_per_video]
+        elif num_frames < max_frames_per_video:
+            # Pad the sequences with zeros if they have less than 'max_frames_per_video' frames
+            images.extend([torch.zeros_like(images[0])] * (max_frames_per_video - num_frames))
+            masks.extend([torch.zeros_like(masks[0])] * (max_frames_per_video - num_frames))
+        
+        # Stack the images and masks along a new dimension
+        images = torch.stack(images, dim=0)
+        masks = torch.stack(masks, dim=0)
+        
+        # Append the processed tensors to the batch lists
+        batch_images.append(images)
+        batch_masks.append(masks)
+        batch_video_ids.append(video_id)
+    
+    # Combine the lists of tensors into single tensors
+    batch_images = torch.stack(batch_images, dim=0)
+    batch_masks = torch.stack(batch_masks, dim=0)
+    
+    # Return the batched data as a dictionary
+    return {'video_id': batch_video_ids, 'images': batch_images, 'masks': batch_masks}
+
 def train_model(model: nn.Module, data_loader: DataLoader, face_mask_generator: FaceMaskGenerator,
-                optimizer: torch.optim.Optimizer, criterion: nn.Module, device: torch.device, num_epochs: int) -> nn.Module:
+                optimizer: torch.optim.Optimizer, criterion: nn.Module, device: torch.device, num_epochs: int,cfg:OmegaConf) -> nn.Module:
    
-    assert isinstance(num_epochs, int) and num_epochs > 0, "Number of epochs must be a positive integer"
+
     model.train()
 
-    for epoch in range(num_epochs):
-        epoch_loss = 0.0
-        for batch in data_loader:
+    for epoch in range(0, num_epochs):
+            epoch_loss = 0.0
+            for step, batch in enumerate(data_loader):
+                print("batch:",batch)
+
                 all_frame_images = batch["images"]
 
                 for images in all_frame_images:
+
                     images = images.to(device)
-                    # [Rest of your image processing code]
+                 
 
                     # Generate face masks for each image in the batch
                     face_masks = []
@@ -118,6 +166,7 @@ def main(cfg: OmegaConf) -> None:
     ])
 
     dataset = EMODataset(
+        use_gpu=cfg.training.use_gpu_video_tensor,
         width=cfg.data.train_width,
         height=cfg.data.train_height,
         n_sample_frames=cfg.data.n_sample_frames,
@@ -130,7 +179,7 @@ def main(cfg: OmegaConf) -> None:
         transform=transform
     )
 
-    data_loader = DataLoader(dataset, batch_size=cfg.training.batch_size, shuffle=True, num_workers=cfg.training.num_workers,collate_fn=padded_collate)
+    data_loader = DataLoader(dataset, batch_size=cfg.training.batch_size, shuffle=True, num_workers=cfg.training.num_workers,collate_fn=gpu_padded_collate)
 
     model = FaceLocator().to(device)
     face_mask_generator = FaceMaskGenerator()
@@ -139,7 +188,7 @@ def main(cfg: OmegaConf) -> None:
 
     num_epochs = cfg.training.num_epochs
 
-    trained_model = train_model(model, data_loader, face_mask_generator, optimizer, criterion, device, num_epochs)
+    trained_model = train_model(model, data_loader, face_mask_generator, optimizer, criterion, device, num_epochs,cfg)
 
     # Save the trained model
     save_path = os.path.join(cfg.model_save_dir, 'face_locator.pth')

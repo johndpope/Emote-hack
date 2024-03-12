@@ -110,57 +110,59 @@ class FaceMaskGenerator:
         self.face_detection.close()
         self.face_mesh.close()
 
-  
-
-    def generate_face_region_mask_pil_image(self, frame_image):
-        # Convert from PIL Image to NumPy array in BGR format
+    def generate_face_region_mask(self,frame_image, video_id=0,frame_idx=0):
         frame_np = np.array(frame_image.convert('RGB'))  # Ensure the image is in RGB
-        frame_bgr = cv2.cvtColor(frame_np, cv2.COLOR_RGB2BGR)
+        return self.generate_face_region_mask_np_image(video_id,frame_idx,frame_np)
 
+    def generate_face_region_mask_np_image(self,frame_np, video_id=0,frame_idx=0, padding=30):
+        # Convert from RGB to BGR for MediaPipe processing
+        frame_bgr = cv2.cvtColor(frame_np, cv2.COLOR_RGB2BGR)
         height, width, _ = frame_bgr.shape
 
         # Create a blank mask with the same dimensions as the frame
         mask = np.zeros((height, width), dtype=np.uint8)
 
+        # Optionally save a debug image
+        debug_image = mask
         # Detect faces
         detection_results = self.face_detection.process(frame_bgr)
-
-        # Assert that detection_results is not None
-        assert detection_results is not None, "The face detection results must not be None."
-
-        # Create a debug image by copying the BGR frame TODO - these need to have more padding.
-        # sometimes videos are too dark to detect faces...
-        if False:
-            debug_image = frame_bgr.copy()
-
-        # If faces are detected
-            if detection_results.detections:
-                for detection in detection_results.detections:
-                    bboxC = detection.location_data.relative_bounding_box
-                    xmin = int(bboxC.xmin * width)
-                    ymin = int(bboxC.ymin * height)
-                    bbox_width = int(bboxC.width * width)
-                    bbox_height = int(bboxC.height * height)
-
-                    # Draw a rectangle on the debug image for each detection
-                    cv2.rectangle(debug_image, (xmin, ymin), (xmin + bbox_width, ymin + bbox_height), (0, 255, 0), 2)
-
-        # # Save the input frame as a debug image (before drawing rectangles)
-            cv2.imwrite('input_frame.png', frame_bgr)
-
-        # # Save the debug image with rectangles around detected faces
-            cv2.imwrite('debug_image.png', debug_image)
-
-        # If faces are detected, find the face landmarks
         if detection_results.detections:
-            # Apply the face mesh model
-            mesh_results = self.face_mesh.process(frame_bgr)
+            for detection in detection_results.detections:
+                bboxC = detection.location_data.relative_bounding_box
+                xmin = int(bboxC.xmin * width)
+                ymin = int(bboxC.ymin * height)
+                bbox_width = int(bboxC.width * width)
+                bbox_height = int(bboxC.height * height)
 
-            if mesh_results.multi_face_landmarks:
-                for face_landmarks in mesh_results.multi_face_landmarks:
-                    for landmark in face_landmarks.landmark:
-                        x = min(int(landmark.x * width), width - 1)
-                        y = min(int(landmark.y * height), height - 1)
-                        mask[y, x] = 255
+                # Draw a rectangle on the debug image for each detection
+                cv2.rectangle(debug_image, (xmin, ymin), (xmin + bbox_width, ymin + bbox_height), (0, 255, 0), 2)
+        # Check that detections are not None
+        if detection_results.detections:
+            for detection in detection_results.detections:
+                bboxC = detection.location_data.relative_bounding_box
+                xmin = int(bboxC.xmin * width)
+                ymin = int(bboxC.ymin * height)
+                bbox_width = int(bboxC.width * width)
+                bbox_height = int(bboxC.height * height)
+
+                # Calculate padded coordinates
+                pad_xmin = max(0, xmin - padding)
+                pad_ymin = max(0, ymin - padding)
+                pad_xmax = min(width, xmin + bbox_width + padding)
+                pad_ymax = min(height, ymin + bbox_height + padding)
+
+                # Draw a white padded rectangle on the mask
+                mask[pad_ymin:pad_ymax, pad_xmin:pad_xmax] = 255
+
+               
+                cv2.rectangle(debug_image, (pad_xmin, pad_ymin), 
+                              (pad_xmax, pad_ymax), (255, 255, 255), thickness=-1)
+                cv2.imwrite(f'./temp/debug_face_mask_{video_id}-{frame_idx}.png', debug_image)
 
         return mask
+
+    
+    def generate_face_region_mask_pil_image(self,frame_image,video_id=0, frame_idx=0):
+        # Convert from PIL Image to NumPy array in BGR format
+        frame_np = np.array(frame_image.convert('RGB'))  # Ensure the image is in RGB
+        return self.generate_face_region_mask_np_image(frame_np,video_id,frame_idx,)

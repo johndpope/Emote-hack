@@ -1,0 +1,406 @@
+EMO: Emote Portrait Alive - Generating
+Expressive Portrait Videos with Audio2Video
+Diﬀusion Model under Weak Conditions
+arXiv:2402.17485v1 [cs.CV] 27 Feb 2024
+Linrui Tian, Qi Wang, Bang Zhang, and Liefeng Bo
+Institute for Intelligent Computing, Alibaba Group
+{tianlinrui.tlr, wilson.wq, zhangbang.zb, liefeng.bo}@alibaba-inc.com
+https://humanaigc.github.io/emote-portrait-alive/
+Fig. 1: We proposed EMO, an expressive audio-driven portrait-video generation frame-
+work. Input a single reference image and the vocal audio, e.g. talking and singing,
+our method can generate vocal avatar videos with expressive facial expressions, and
+various head poses, meanwhile, we can generate videos with any duration depending
+on the length of input audio.
+Abstract. In this work, we tackle the challenge of enhancing the re-
+alism and expressiveness in talking head video generation by focusing
+on the dynamic and nuanced relationship between audio cues and facial
+movements. We identify the limitations of traditional techniques that
+often fail to capture the full spectrum of human expressions and the
+uniqueness of individual facial styles. To address these issues, we propose
+EMO, a novel framework that utilizes a direct audio-to-video synthesis
+approach, bypassing the need for intermediate 3D models or facial land-
+marks. Our method ensures seamless frame transitions and consistent2
+L. Tian, Q. Wang, B. Zhang, and L. Bo
+identity preservation throughout the video, resulting in highly expres-
+sive and lifelike animations. Experimental results demonsrate that EMO
+is able to produce not only convincing speaking videos but also singing
+videos in various styles, significantly outperforming existing state-of-the-
+art methodologies in terms of expressiveness and realism.
+Keywords: Diﬀusion Models · Video Generation · Talking Head
+1
+Introduction
+In recent years, the field of image generation has witnessed remarkable ad-
+vancements, largely attributed to the emergence and success of Diﬀusion Mod-
+els [4, 8, 16, 20, 25]. These models, celebrated for their ability to produce high-
+quality images, owe their prowess to extensive training on large-scale image
+datasets and a progressive generation approach. This innovative methodology
+enables the creation of images with unparalleled detail and realism, setting new
+benchmarks in the domain of generative models. The application of Diﬀusion
+Models has not been confined to still images alone. A burgeoning interest in
+video generation has led to the exploration of these models’ potential in crafting
+dynamic and compelling visual narratives [6, 9]. These pioneering eﬀorts under-
+score the vast potential of Diﬀusion Models in the field of video generation.
+Beyond general video synthesis, the generation of human-centric videos has
+been the focal point of research, such as talking head. The objective of talking
+head is to generate the facial expressions from user-provided audio clips. Craft-
+ing these expressions involves capturing the subtleties and diversity of human
+facial movements, presenting a significant challenge in video synthesis. Tradi-
+tional approaches often impose constraints on the final video output to simplify
+this task. For instance, some methods use 3D models to restrict facial keypoints,
+while others extract sequences of head movements from base videos to guide the
+overall motion. While these constraints reduce the complexity of video genera-
+tion, they also tend to limit the richness and naturalness of the resulting facial
+expressions.
+In this paper, our goal is to establish an innovative talking head framework
+designed to capture a broad spectrum of realistic facial expressions, including
+nuanced micro-expressions, and to facilitate natural head movements, thereby
+imbuing generated head videos with an unparalleled level of expressiveness. To
+achieve this goal, we propose a method that leverages the generative power of
+Diﬀusion Models, capable of directly synthesizing character head videos from
+a given image and an audio clip. This approach eliminates the need for inter-
+mediate representations or complex pre-processing, streamlining the creation of
+talking head videos that exhibit a high degree of visual and emotional fidelity,
+closely aligned with the nuances present in the audio input. Audio signals are
+rich in information related to facial expressions, theoretically enabling models
+to generate a diverse array of expressive facial movements. However, integrating
+audio with Diﬀusion Models is not a straightforward task due to the ambiguity
+inherent in the mapping between audio and facial expression. This issue can leadEMO-Emote Portrait Alive
+3
+to instability in the videos produced by the model, manifesting as facial distor-
+tions or jittering between video frames, and in severe cases, may even result in
+the complete collapse of the video. To address this challenge, we have incorpo-
+rated stable control mechanisms into our model, namely a speed controller and a
+face region controller, to enhance stability during the generation process. These
+two controllers function as hyperparameters, acting as subtle control signals that
+do not compromise the diversity and expressiveness of the final generated videos.
+Furthermore, to ensure that the character in the generated video remains con-
+sistent with the input reference image, we adopted and enhanced the approach
+of ReferenceNet by designing a similar module, FrameEncoding, aimed at pre-
+serving the character’s identity across the video.
+Finally, To train our model, we constructed a vast and diverse audio-video
+dataset, amassing over 250 hours of footage and more than 150 million images.
+This expansive dataset encompasses a wide range of content, including speeches,
+film and television clips, and singing performances, and covers multiple lan-
+guages such as Chinese and English. The rich variety of speaking and singing
+videos ensures that our training material captures a broad spectrum of human
+expressions and vocal styles, providing a solid foundation for the development
+of EMO. We conducted extensive experiments and comparisons on the HDTF
+dataset, where our approach surpassed current state-of-the-art (SOTA) methods,
+including DreamTalk, Wav2Lip, and SadTalker, across multiple metrics such as
+FID, SyncNet, F-SIM, and FVD. In addition to quantitative assessments, we
+also carried out a comprehensive user study and qualitative evaluations, which
+revealed that our method is capable of generating highly natural and expressive
+talking and even singing videos, achieving the best results to date.
+2
+Related Work
+Diﬀusion Models Diﬀusion Models have demonstrated remarkable capabilities
+across various domains, including image synthesis [4, 8], image editing [10, 24],
+video generation [6,9] and even 3D content generation [12,17]. Among them, Sta-
+ble Diﬀusion (SD) [20] stands out as a representative example, employing a UNet
+architecture to iteratively generate images with notable text-to-image capabil-
+ities, following extensive training on large text-image datasets [23]. These pre-
+trained models have found widespread application in a variety of image and video
+generation tasks [6, 9]. Additionally, some recent works adopt a DiT (Diﬀusion-
+in-Transformer) [16] which alters the UNet with a Transformer incpororating
+temporal modules and 3D Convoluations, enabling support for larger-scale data
+and model parameters. By training the entire text-to-video model from scratch,
+it achieves superior video generation results [14]. Also, some eﬀorts have delved
+into applying Diﬀusion Models for talking head generation, producing promising
+results that highlight the capability of these models in crafting realistic talking
+head videos [15, 27].
+Audio-driven talking head generation Audio-driven talking head gen-
+eration can be broadly catgorized into two approaches:video-based methods4
+L. Tian, Q. Wang, B. Zhang, and L. Bo
+[5, 18, 30] and single-image [15, 28, 33]. video-based talking head generation al-
+lows for direct editing on an input video segment. For example, Wav2Lip [18]
+regenerates lip movements in a video based on audio, using a discriminator for
+audio-lip sync. Its limitation is relying on a base video, leading to fixed head
+movements and only generating mouth movements, which can limit realism. For
+single-image talking head generation, a reference photo is utilized to generate a
+video that mirrors the appearance of the photo. [28] proposes to generate the
+head motion and facial expressions independently by learning blendshapes and
+head poses. These are then used to create a 3D facial mesh, serving as an inter-
+mediate representation to guide the final video frame generation. Similarly, [33]
+employs a 3D Morphable Model (3DMM) as an intermediate representation for
+generating talking head video. A common issue with these methods is the limited
+representational capacity of the 3D mesh, which constrains the overall expres-
+siveness and realism of the generated videos. Additionally, both methods are
+based on non-diﬀusion models, which further limits the performance of the gen-
+erated results. [15] attempts to use diﬀusion models for talking head generation,
+but instead of applying directly to image frames, it employs them to generate
+coeﬃcients for 3DMM. Compared to the previous two methods, Dreamtalk of-
+fers some improvement in the results, but it still falls short of achieving highly
+natural facial video generation.
+3
+Method
+Given a single reference image of a character portrait, our approach can generate
+a video synchronized with an input voice audio clip, preserving the natural head
+motion and vivid expression in harmony with the tonal variances of the provided
+vocal audio. By creating a seamless series of cascaded video, our model facilitates
+the generation of long-duration talking portrait videos with consistent identity
+and coherent motion, which are crucial for realistic applications.
+3.1
+Preliminaries
+Our methodology employs Stable Diﬀusion (SD) as the foundational framework.
+SD is a widely-utilized text-to-image (T2I) model that evolves from the Latent
+Diﬀusion Model (LDM) [20]. It utilizes an autoencoder Variational Autoencoder
+(VAE) [11] to map the original image feature distribution x0 into latent space
+z0 , encoding the image as z0 = E(x0 ) and reconstructing the latent features
+as x0 = D(z0 ). This architecture oﬀers the advantage of reducing computa-
+tional costs while maintaining high visual fidelity. Based on the Denoising Diﬀu-
+sion Probabilistic Model (DDPM) [8] or the Denoising Diﬀusion Implicit Model
+(DDIM) [26] approach, SD introduces Gaussian noise ✏ to the latent z0 to pro-
+duce a noisy latent zt at a specific timestep t. During inference, SD aims to
+remove the noise ✏ from the latent zt and incorporates text control to achieve
+the desired outcome by integrating text features. The training objective for thisEMO-Emote Portrait Alive
+5
+Fig. 2: Overview of the proposed method. Our framework is mainly constituted with
+two stages. In the initial stage, termed Frames Encoding, the ReferenceNet is deployed
+to extract features from the reference image and motion frames. Subsequently, during
+the Diﬀusion Process stage, a pretrained audio encoder processes the audio embedding.
+The facial region mask is integrated with multi-frame noise to govern the generation
+of facial imagery. This is followed by the employment of the Backbone Network to
+facilitate the denoising operation. Within the Backbone Network, two forms of attention
+mechanisms are applied: Reference-Attention and Audio-Attention. These mechanisms
+are essential for preserving the character’s identity and modulating the character’s
+movements, respectively. Additionally, Temporal Modules are utilized to manipulate
+the temporal dimension, and adjust the velocity of motion.
+denoising process is expressed as:
+⇥
+L = Et,c,zt ,✏ ||✏
+✏✓ (zt , t, c)||2
+⇤
+(1)
+where c represents the text features, which are obtained from the token prompt
+via the CLIP [19] ViT-L/14 text encoder. In SD, ✏✓ is realized through a modified
+UNet [21] model, which employs the cross-attention mechanism to fuse c with
+the latent features.
+3.2
+Network Pipelines
+The overview of our method is shown in Figure 2. Our Backbone Network
+get the multi-frame noise latent input, and try to denoise them to the consecu-
+tive video frames during each time step, the Backbone Network has the similar6
+L. Tian, Q. Wang, B. Zhang, and L. Bo
+UNet structure configuration with the original SD 1.5. 1) Similar to previous
+work, to ensure the continuity between generated frames, the Backbone Net-
+work is embedded with temporal modules. 2) To maintain the ID consistency
+of the portrait in the generated frames, we deploy a UNet structure called Ref-
+erenceNet parallel to the Backbone, it input the reference image to get the
+reference features. 3) To drive the character speaking motion, a audio layers is
+utilized to encode the voice features. 4) To make the motion of talking character
+controllable and stable, we use the face locator and speed layers to provide
+weak conditions.
+Backbone Network. In our work, the prompt embedding is not utilized; hence,
+we have adapted the cross-attention layers in the SD 1.5 UNet structure to
+reference-attention layers. These modified layers now take reference features from
+ReferenceNet as input rather than text embeddings.
+Audio Layers. The pronunciation and tone in the voice is the main driven sign
+to the motion of the generated character. The features extracted from the input
+audio sequence by the various blocks of the pretrained wav2vec [22] are con-
+catenated to yield the audio representation embedding, A(f ) , for the fth frame.
+However, the motion might be influenced by the future/past audio segments,
+for example, opening mouth and inhaling before speaking. To address that, we
+define voice features of each generated frame by concatenating the features of
+(f )
+nearby frames: Agen = {A(f m) , ...A(f ) , ...A(f +m) }, m is the number of addi-
+tional features from one side. To inject the voice features into the generation
+procedure, we add audio-attention layers performing a cross attention mecha-
+nism between the latent code and Agen after each ref-attention layers in the
+Backbone Network.
+ReferenceNet. The ReferenceNet possesses a structure identical to that of the
+Backbone Network and serves to extract detailed features from input images.
+Given that both the ReferenceNet and the Backbone Network originate from
+the same original SD 1.5 UNet architecture, the feature maps generated by these
+two structures at certain layers are likely to exhibit similarities. Consequently,
+this facilitates the Backbone Network’s integration of features extracted by the
+ReferenceNet. Prior research [9, 35] has underscored the profound influence of
+utilizing analogous structures in maintaining the consistency of the target ob-
+ject’s identity. In our study, both the ReferenceNet and the Backbone Network
+inherit weights from the original SD UNet. The image of the target character
+is inputted into the ReferenceNet to extract the reference feature maps outputs
+from the self-attention layers. During the Backbone denoising procedure, the
+features of corresponding layers undergo a reference-attention layers with the
+extracted feature maps. As the ReferenceNet is primarily designed to handle
+individual images, it lacks the temporal layers found in the Backbone.EMO-Emote Portrait Alive
+7
+Temporal Modules. Most works try inserting temporal mixing layers into the
+pretrained text-to-image architecture, to facilitate the understanding and encod-
+ing of temporal relationships between consecutive video frames. By doing so, the
+enhanced model is able to maintain continuity and consistency across frames,
+resulting in the generation of smooth and coherent video streams. Informed by
+the architectural concepts of AnimateDiﬀ, we apply self-attention temporal lay-
+ers to the features within frames. Specifically, we reconfigure the input feature
+map x 2 Rb⇥c⇥f ⇥h⇥w to the shape (b ⇥ h ⇥ w) ⇥ f ⇥ c. Here, b stands for the
+batch size, h and w indicate the spatial dimensions of the feature map, f is the
+count of generated frames, and c is the feature dimension. Notably, we direct
+the self-attention across the temporal dimension f , to eﬀectively capture the dy-
+namic content of the video. The temporal layers are inserted at each resolution
+stratum of the Backbone Network. Most current diﬀusion-based video genera-
+tion models are inherently limited by their design to produce a predetermined
+number of frames, thereby constraining the creation of extended video sequences.
+This limitation is particularly impactful in applications of talking head videos,
+where a suﬃcient duration is essential for the articulation of meaningful speak-
+ing. Some methodologies employ a frame from the end of the preceding clip as
+the initial frame of the subsequent generation, aiming to maintain a seamless
+transition across concatenated segments. Inspired by that, our approach incor-
+porates the last n frames, termed ’motion frames’ from the previously generated
+clip to enhance cross-clip consistency. Specifically, these n motion frames are fed
+into the ReferenceNet to pre-extract multi-resolution motion feature maps. Dur-
+ing the denoising process within the Backbone Network, we merge the temporal
+layer inputs with the pre-extracted motion features of matching resolution along
+the frames dimension. This straightforward method eﬀectively ensures coherence
+among various clips. For the generation of the first video clip, we initialize the
+motion frames as zero maps.
+It should be noted that while the Backbone Network may be iterated mul-
+tiple times to denoise the noisy frames, the target image and motion frames
+are concatenated and input into the ReferenceNet only once. Consequently, the
+extracted features are reused throughout the process, ensuring that there is no
+substantial increase in computational time during inference.
+Face Locator and Speed Layers. Temporal modules can guarantee continuity
+of the generated frames and seamless transitions between video clips, however,
+they are insuﬃcient to ensure the consistency and stability of the generated
+character’s motion across the clips, due to the independent generation process.
+Previous works use some signal to control the character motion, e.g. skeleton [9],
+blendshape [33], or 3DMM [28], nevertheless, employing these control signals
+may be not good in creating lively facial expressions and actions due to their
+limited degrees of freedom, and the inadequate labeling during training stage
+are insuﬃcient to capture the full range of facial dynamics. Additionally, the
+same control signals could result in discrepancies between diﬀerent characters,
+failing to account for individual nuances. Enabling the generation of control8
+L. Tian, Q. Wang, B. Zhang, and L. Bo
+signals may be a viable approach [28], yet producing lifelike motion remains a
+challenge. Therefore, we opt for a "weak" control signal approach.
+Sf
+Specifically, as shown in Figure 2, we utilize a mask M = i=0 M i as the
+face region, which encompasses the facial bounding box regions of the video clip.
+We employ the Face Locator, which consists of lightweight convolutional layers
+designed to encode the bounding box mask. The resulting encoded mask is then
+added to the noisy latent representation before being fed into the Backbone. In
+this way, we can use the mask to control where the character face should be
+generated.
+However, creating consistent and smooth motion between clips is challenging
+due to variations in head motion frequency during separate generation processes.
+To address this issue, we incorporate the target head motion speed into the
+generation. More precisely, we consider the head rotation velocity wf in frame f
+and divide the range of speeds into d discrete speed buckets, each representing
+a diﬀerent velocity level. Each bucket has a central value cd and a radius rd . We
+retarget wf to a vector S = {sd } 2 Rd , where sd = tanh((wf cd )/rd ⇤3). Similar
+to the method used in the audio layers, the head rotation speed embedding
+for each frame is given by S f = {S (f m) , . . . , S (f ) , . . . , S (f +m) }, and S f 2
+speed
+Rb⇥f ⇥c
+is subsequently processed by an MLP to extract speed features.
+Within the temporal layers, we repeat S f to the shape (b ⇥ h ⇥ w) ⇥ f ⇥ cspeed
+and implement a cross-attention mechanism that operates between the speed
+features and the reshaped feature map across the temporal dimension f . By
+doing so and specifying a target speed, we can synchronize the rotation speed and
+frequency of the generated character’s head across diﬀerent clips. Combined with
+the facial position control provided by the Face Locator, the resulting output
+can be both stable and controllable.
+It should also be noted that the specified face region and assigned speed does
+not constitute strong control conditions. In the context of face locator, since the
+M is the union area of the entire video clip, indicating a sizeable region within
+which facial movement is permissible, thereby ensuring that the head is not
+restricted to a static posture. With regard to the speed layers, the diﬃculty in
+accurately estimating human head rotation speed for dataset labeling means that
+the predicted speed sequence is inherently noisy. Consequently, the generated
+head motion can only approximate the designated speed level. This limitation
+motivates the design of our speed buckets framework.
+3.3
+Training Strategies
+The training process is structured into three stages. The first stage is the image
+pretraining, where the Backbone Network, the ReferenceNet, and the Face Lo-
+cator are token into training, in this stage, the Backbone takes a single frame as
+input, while ReferenceNet handles a distinct, randomly chosen frame from the
+same video clip. Both the Backbone and the ReferenceNet initialize weights from
+the original SD. In the second stage, we introduce the video training, where the
+temporal modules and the audio layers are incorporated, n+f contiguous frames
+are sampled from the video clip, with the started n frames are motion frames.EMO-Emote Portrait Alive
+9
+The temporal modules initialize weights from AnimateDiﬀ [6]. In the last stage,
+the speed layers are integrated, we only train the temporal modules and the
+speed layers in this stage. This strategic decision deliberately omits the audio
+layers from the training process. Because the speaking character’s expression,
+mouth motion, and the frequency of the head movement, are predominantly in-
+fluenced by the audio. Consequently, there appears to be a correlation between
+these elements, the model might be prompted to drive the character’s motion
+based on the speed signal rather than the audio. Our experimental results sug-
+gest that simultaneous training of both the speed and audio layers undermines
+the driven ability of the audio on the character’s motions.
+4Experiments
+4.1Implementations
+We collected approximately 250 hours of talking head videos from the internet
+and supplemented this with the HDTF [34] and VFHQ [31] datasets to train our
+models. As the VFHQ dataset lacks audio, it is only used in the first training
+stage. We apply the MediaPipe face detection framework [13] to obtain the facial
+bounding box regions. Head rotation velocity was labeled by extracting the 6-
+DoF head pose for each frame using facial landmarks, followed by calculating
+the rotational degrees between successive frames.
+The video clips sampled from the dataset are resized and cropped to 512 ⇥
+512. In the first training stage, the reference image and the target frame are
+sampled from the video clip separately, we trained the Backbone Network and
+the ReferneceNet with a batch size of 48. In the second and the third stage, we
+set f = 12 as the generated video length, and the motion frames number is set
+to n = 4, we adopt a bath size of 4 for training. The additional features number
+m is set to 2, following the Diﬀused Heads [27]. The learning rate for all stages
+are set to 1e-5. During the inference, we use the sampling algorithm of DDIM
+to generate the video clip for 40 steps, we assign a constant speed value for each
+frame generation. The time consumption of our method is about 15 seconds for
+one batch (f = 12 frames).
+4.2
+Experiments Setup
+For methods comparisons, we partitioned the HDTF dataset, allocating 10% as
+the test set and reserving the remaining 90% for training. We took precautions
+to ensure that there was no overlap of character IDs between these two subsets.
+We compare our methods with some previous works including: Wav2Lip [18],
+SadTalker [33], DreamTalk [15]. Additionally, we generated results using the re-
+leased code from Diﬀused Heads [27], however, the model is trained on CREMA
+[1] dataset which contains only green background, the generated results are
+suboptimal. Furthermore, the results were compromised by error accumulation
+across the generated frames. Therefore, we only conduct qualitative comparison10
+L. Tian, Q. Wang, B. Zhang, and L. Bo
+with the Diﬀused Heads approach. For DreamTalk, we utilize the talking style
+parameters as prescribed by the original authors.
+To demonstrate the superiority of the proposed method, we evaluate the
+model with several quantitative metrics. We utilize Fréchet Inception Distance
+(FID) [7] to assess the quality of the generated frame [32]. Additionally, to gauge
+the preservation of identity in our results, we computed the facial similarity (F-
+SIM) by extracting and comparing facial features between the generated frames
+and the reference image. It is important to note that using a single, unvary-
+ing reference image could result in deceptively perfect F-SIM scores. Certain
+methods [18] might produce only the mouth regions, leaving the rest of the
+frame identical to the reference image, which could skew results. Therefore, we
+treat F-SIM as population-reference indices [27], with closer approximations to
+the corresponding ground truth (GT) values indicating better performance. We
+further employed the Fréchet Video Distance (FVD) [29] for the video-level eval-
+uation. The SyncNet [2] score was used to assess the lip synchronization quality,
+a critical aspect for talking head applications. To evaluate the expressiveness
+of the facial expressions in the generated videos, we introduce the use of the
+Expression-FID (E-FID) metric. This involves extracting expression parameters
+via face reconstruction techniques, as described in [3]. Subsequently, we compute
+the FID of these expression parameters to quantitatively measure the divergence
+between the expressions in the synthesized videos and those in the ground truth
+dataset.
+4.3
+Qualitative Comparisons
+Figure 3 demonstrates the visual results of our method alongside those of earlier
+approaches. It is observable that Wav2Lip typically synthesizes blurry mouth
+regions and produces videos characterized by a static head pose and minimal
+eye movement when a single reference image is provided as input. In the case
+of DreamTalk [15], the style clips supplied by the authors could distort the
+original faces, also constrain the facial expressions and the dynamism of head
+movements. In contrast to SadTalker and DreamTalk, our proposed method
+is capable of generating a greater range of head movements and more dynamic
+facial expressions. Since we do not utilize direct signal, e.g. blendshape or 3DMM,
+to control the character motion, these motions are directly driven by the audio,
+which will be discussed in detail in the following showcases.
+We further explore the generation of talking head videos across various por-
+trait styles. As illustrated in Figure 4, the reference images, sourced from Civitai,
+are synthesized by disparate text-to-image (T2I) models, encompassing charac-
+ters of diverse styles, namely realistic, anime, and 3D. These characters are ani-
+mated using identical vocal audio inputs, resulting in approximately uniform lip
+synchronization across the diﬀerent styles. Although our model is trained only
+on the realistic videos, it demonstrates proficiency in producing talking head
+videos for a wide array of portrait types.
+Figure 5 demonstrates that our method is capable of generating richer fa-
+cial expressions and movements when processing audio with pronounced tonal

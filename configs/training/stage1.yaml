@@ -6,10 +6,11 @@ data:
   sample_rate: 4 
   n_sample_frames: 1
 training:
-  batch_size: 20 
+  batch_size: 2
   num_workers: 0
   learning_rate: 1.0e-5
-  num_epochs: 20
+  num_epochs: 2
+  use_gpu_video_tensor: True
 solver:
   gradient_accumulation_steps: 1
   mixed_precision: 'fp16'

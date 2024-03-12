@@ -11,6 +11,9 @@ import decord
 from typing import List
 from HeadRotation import get_head_pose_velocities_at_frame
 from FaceLocator import FaceMaskGenerator 
+from torchvision.transforms import ToTensor
+import numpy as np
+
 # Use decord's CPU or GPU context
 # For GPU: decord.gpu(0)
 decord.logging.set_level(decord.logging.ERROR)
@@ -45,7 +48,7 @@ class EmoVideoReader(VideoReader):
     
 
 class EMODataset(Dataset):
-    def __init__(self, data_dir: str, sample_rate: int, n_sample_frames: int, width: int, height: int, img_scale: Tuple[float, float], img_ratio: Tuple[float, float] = (0.9, 1.0), video_dir: str = ".", drop_ratio: float = 0.1, json_file: str = "", stage: str = 'stage1', transform: transforms.Compose = None):
+    def __init__(self, use_gpu:False,data_dir: str, sample_rate: int, n_sample_frames: int, width: int, height: int, img_scale: Tuple[float, float], img_ratio: Tuple[float, float] = (0.9, 1.0), video_dir: str = ".", drop_ratio: float = 0.1, json_file: str = "", stage: str = 'stage1', transform: transforms.Compose = None):
         self.sample_rate = sample_rate
         self.n_sample_frames = n_sample_frames
         self.width = width
@@ -89,10 +92,10 @@ class EMODataset(Dataset):
             self.celebvhq_info = json.load(f)
 
         self.video_ids = list(self.celebvhq_info['clips'].keys())
+        self.use_gpu = use_gpu
 
         decord.bridge.set_bridge('torch')  # Optional: This line sets decord to directly output PyTorch tensors.
-        self.ctx = decord.gpu(0) # https://github.com/johndpope/decord-cuda12
-
+        self.ctx = decord.cpu()
 
 
     def __len__(self) -> int:
@@ -115,32 +118,40 @@ class EMODataset(Dataset):
         if self.stage == 'stage1':
             video_reader = VideoReader(mp4_path, ctx=self.ctx)
             video_length = len(video_reader)
-            all_frame_images = []
-            all_frame_masks = []
-
+            
+            transform_to_tensor = ToTensor()
+            # Read frames and generate masks
+            vid_pil_image_list = []
+            mask_tensor_list = []
             for frame_idx in range(video_length):
-     
-             # Extract the frame from video_reader, which is a PyTorch tensor
-                ref_img_tensor = video_reader[frame_idx]
-                                # Add assertions before permute
-                assert isinstance(ref_img_tensor, torch.Tensor), "The frame must be a PyTorch tensor."
-                assert ref_img_tensor.ndim == 3, "The tensor must be 3-dimensional."
-                assert ref_img_tensor.shape[0] == 3 or ref_img_tensor.shape[2] == 3, "The tensor must have 3 channels."
+                # Read frame and convert to PIL Image
+                frame = Image.fromarray(video_reader[frame_idx].numpy())
 
-                # Continue with permute and normalization
-                ref_img_tensor = ref_img_tensor.permute(2, 0, 1).float() / 255.0  # Convert to CHW and normalize
- 
-                ref_img_pil = transforms.ToPILImage()(ref_img_tensor.cpu())  
+                # Transform the frame
+                state = torch.get_rng_state()
+                pixel_values_frame = self.augmentation(frame, self.pixel_transform, state)
+                vid_pil_image_list.append(pixel_values_frame)
+
+
+                # Convert the transformed frame back to NumPy array in RGB format
+                transformed_frame_np = np.array(pixel_values_frame.permute(1, 2, 0).numpy() * 255, dtype=np.uint8)
+                transformed_frame_np = cv2.cvtColor(transformed_frame_np, cv2.COLOR_RGB2BGR)
+
                 # Generate the mask using the face mask generator
-                mask = self.face_mask_generator.generate_face_region_mask_pil_image(ref_img_pil)
-                all_frame_masks.append(mask)
-                all_frame_images.append(ref_img_tensor)
+                mask_np = self.face_mask_generator.generate_face_region_mask_np_image(transformed_frame_np, video_id, frame_idx)
+
+                    # Convert the mask from numpy array to PIL Image
+                mask_pil = Image.fromarray(mask_np)
+
+                # Transform the PIL Image mask to a PyTorch tensor
+                mask_tensor = transform_to_tensor(mask_pil)
+                mask_tensor_list.append(mask_tensor)
 
             sample = {
                 "video_id": video_id,
-                "images": all_frame_images,
-                "masks": all_frame_masks,
- 
+                "images": vid_pil_image_list,
+                "masks": mask_tensor_list,
+               
             }
 
 
