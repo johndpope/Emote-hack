@@ -11,24 +11,45 @@ from omegaconf import OmegaConf
 from tqdm import tqdm
 from FaceLocator import FaceLocator,FaceMaskGenerator
 import numpy as np
-from torch.nn.utils.rnn import pad_sequence
-
-
+from torchvision.transforms.functional import pad
 
 def padded_collate(batch):
-    # Assuming each sample in the batch is a dictionary containing 'images' and 'masks' keys
-    images = [sample['images'] for sample in batch]
-    masks = [sample['masks'] for sample in batch]
+    assert isinstance(batch, list), "Batch should be a list"
 
-    # Convert images and masks to tensors
-    images = [torch.stack([torch.from_numpy(np.array(img)).permute(2, 0, 1) for img in imgs]) for imgs in images]
-    masks = [torch.stack([torch.from_numpy(np.array(mask)) for mask in mask_list]) for mask_list in masks]
+    # Unpack the images and masks from the batch
+    images = [item['images'] for item in batch]
+    masks = [item['masks'] for item in batch]
 
-    # Pad images and masks to the same size
-    images = pad_sequence(images, batch_first=True)
-    masks = pad_sequence(masks, batch_first=True)
 
-    return images, masks
+    # Convert images and masks to tensors if they are not already
+    images = [torch.tensor(img, dtype=torch.float32) if not isinstance(img, torch.Tensor) else img for img in images]
+    masks = [torch.tensor(mask, dtype=torch.float32) if not isinstance(mask, torch.Tensor) else mask for mask in masks]
+
+    # Assert that all images and masks are now tensors
+    assert all(isinstance(img, torch.Tensor) for img in images), "All images must be PyTorch tensors"
+    assert all(isinstance(mask, torch.Tensor) for mask in masks), "All masks must be PyTorch tensors"
+
+
+    # Determine the maximum dimensions
+    assert all(img.ndim == 3 for img in images), "All images must be 3D tensors"
+    max_height = max(img.shape[1] for img in images)
+    max_width = max(img.shape[2] for img in images)
+
+    # Pad the images and masks
+    padded_images = [F.pad(img, (0, max_width - img.shape[2], 0, max_height - img.shape[1])) for img in images]
+    padded_masks = [F.pad(mask, (0, max_width - mask.shape[2], 0, max_height - mask.shape[1])) for mask in masks]
+
+
+
+    # Stack the padded images and masks
+    images_tensor = torch.stack(padded_images)
+    masks_tensor = torch.stack(padded_masks)
+
+    # Assert the correct shape of the output tensors
+    assert images_tensor.ndim == 4, "Images tensor should be 4D"
+    assert masks_tensor.ndim == 4, "Masks tensor should be 4D"
+    
+    return {'images': images_tensor, 'masks': masks_tensor}
 
 
 def train_model(model, data_loader, face_mask_generator, optimizer, criterion, device, num_epochs):
@@ -36,21 +57,22 @@ def train_model(model, data_loader, face_mask_generator, optimizer, criterion, d
     model.train()
 
     for epoch in range(num_epochs):
-            epoch_loss = 0.0
-            for batch in tqdm(data_loader, desc=f"Epoch {epoch+1}/{num_epochs}"):
+        epoch_loss = 0.0
+        for batch in data_loader:
                 all_frame_images = batch["images"]
 
                 for images in all_frame_images:
                     images = images.to(device)
-                    assert images.ndim == 4, "Images must be a 4D tensor"
-                    assert images.size(1) == 3, "Images must have 3 channels"
-
-                    optimizer.zero_grad()
+                    # [Rest of your image processing code]
 
                     # Generate face masks for each image in the batch
                     face_masks = []
-                    for img in images.cpu().numpy():
-                        img = (img * 255).astype(np.uint8).transpose(1, 2, 0)
+                    for img in images.cpu():
+                       # Convert the tensor to a numpy array and transpose it to HWC format
+                        img = img.numpy().transpose(1, 2, 0)
+                        # Ensure the image is in uint8 format
+                        img = (img * 255).astype(np.uint8)
+
                         mask = face_mask_generator.generate_mask(img)
                         face_masks.append(mask)
 

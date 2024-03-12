@@ -109,8 +109,24 @@ class FaceMaskGenerator:
         self.face_detection.close()
         self.face_mesh.close()
 
-    def generate_mask(self, image):
-        # Convert image to RGB
+    def generate_mask(self, image_tensor):
+        assert isinstance(image_tensor, torch.Tensor), "Input must be a PyTorch tensor"
+        assert image_tensor.ndim == 3, "Input tensor must be 3-dimensional (C, H, W)"
+        assert image_tensor.shape[0] == 3, "Input tensor must have 3 channels (RGB)"
+
+        # Ensure the tensor is on CPU and convert to numpy array
+        if image_tensor.is_cuda:
+            image_tensor = image_tensor.cpu()
+        image = image_tensor.numpy()
+
+        # Convert image to uint8 if it's not already
+        if image.dtype != np.uint8:
+            image = (image * 255).astype(np.uint8)
+
+        # Convert the tensor from [C, H, W] to [H, W, C] format for OpenCV
+        image = image.transpose(1, 2, 0)
+
+        # Convert the image from BGR to RGB
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         # Create a blank mask with the same dimensions as the image
@@ -133,3 +149,4 @@ class FaceMaskGenerator:
                         mask[y, x] = 255
 
         return mask
+

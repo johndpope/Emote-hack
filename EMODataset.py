@@ -125,15 +125,17 @@ class EMODataset(Dataset):
             all_frame_masks = []
 
             for frame_idx in range(video_length):
-                img = video_reader[frame_idx].numpy()
-                all_frame_images.append(img)
+                img_tensor = video_reader[frame_idx]  # img is now a PyTorch tensor
 
-                # Convert the image from BGR to RGB
-                img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                # Convert the image from BGR to RGB while maintaining [C, H, W] format
+                img_rgb_tensor = img_tensor[[2, 1, 0], :, :]  # Rearrange channels from BGR to RGB
 
                 # Generate the mask using the face mask generator
-                mask = self.face_mask_generator.generate_mask(img_rgb)
+                mask = self.face_mask_generator.generate_mask(img_rgb_tensor)
                 all_frame_masks.append(mask)
+
+                # Append the original tensor, not the numpy version
+                all_frame_images.append(img_tensor)
 
             sample = {
                 "video_id": video_id,
