@@ -2,17 +2,10 @@ import torch
 import cv2
 import numpy as np
 import mediapipe as mp
-from PIL import Image
-from torchvision import transforms
+
 import torch.nn as nn
 import torch.nn.functional as F
-import cv2
-import numpy as np
-import torch
-import torch.optim as optim
-import mediapipe as mp
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
+
 
 class FaceLocator(nn.Module):
     def __init__(self):
@@ -143,65 +136,3 @@ class FaceMaskGenerator:
         # Convert the mask to a PyTorch tensor
         mask_tensor = torch.tensor(mask, dtype=torch.float32)
         return mask_tensor
-
-# Define your dataset and data loader
-transform = transforms.Compose([
-    # Add any required transformations here
-    transforms.ToTensor(),
-])
-
-dataset = datasets.ImageFolder(root='path_to_training_images', transform=transform)
-data_loader = DataLoader(dataset, batch_size=32, shuffle=True)
-
-
-# Instantiate the model and optimizer
-model = FaceLocator()
-optimizer = optim.Adam(model.parameters(), lr=1e-4)
-
-# Instantiate the face mask generator
-face_mask_generator = FaceMaskGenerator()
-
-# Define the training loop
-def train_model(model, data_loader, face_mask_generator, optimizer, num_epochs):
-    assert isinstance(num_epochs, int) and num_epochs > 0, "Number of epochs must be a positive integer"
-    
-    model.train()
-    criterion = nn.BCEWithLogitsLoss()  # Binary cross-entropy loss
-    
-    for epoch in range(num_epochs):
-        for i, (images, _) in enumerate(data_loader):
-            assert images.ndim == 4, "Images must be a 4D tensor"
-            assert images.size(1) == 3, "Images must have 3 channels"
-            optimizer.zero_grad()
-
-       
-            # Generate face masks for each image in the batch
-            face_masks = []
-            for img in images.numpy():
-                img = (img * 255).astype(np.uint8).transpose(1, 2, 0)  # Convert to uint8 and HWC format for cv2
-                mask = face_mask_generator.generate_mask(img)
-                face_masks.append(mask)
-
-            # Convert list of masks to a tensor
-            face_masks_tensor = torch.stack(face_masks)
-
-            # Forward pass: compute the output of the model using images and masks
-            outputs = model(images, face_masks_tensor)
-
-
-            # Ensure the mask is the same shape as the model's output
-            face_masks_tensor = F.interpolate(face_masks_tensor.unsqueeze(1), size=outputs.shape[2:], mode='nearest').squeeze(1)
-            assert outputs.shape == face_masks_tensor.shape, "Output and face masks tensor must have the same shape"
-
-             # Compute the loss
-            loss = criterion(outputs, face_masks_tensor)
-
-            # Backward pass and optimize
-            loss.backward()
-            optimizer.step()
-
-            if (i+1) % 10 == 0:
-                print(f'Epoch [{epoch+1}/{num_epochs}], Step [{i+1}/{len(data_loader)}], Loss: {loss.item()}')
-
-# Call the training loop
-train_model(model, data_loader, face_mask_generator, optimizer, num_epochs=25)
