@@ -3,7 +3,7 @@ import mediapipe as mp
 import numpy as np
 import torch
 from camera import Camera
-from video import Video
+
 import math
 from math import cos, sin, pi
 from decord import VideoReader
@@ -239,7 +239,7 @@ def get_head_pose_velocities_at_frame(video_reader:VideoReader, frame_index, n_p
 
     return head_velocities
 # # Usage example
-# image_path = 'frame_0003.jpg'  # Replace with your image path
+image_path = 'frame_0003.jpg'  # Replace with your image path
 # head_pose = get_head_pose(image_path)
 # if head_pose:
 #     roll, pitch, yaw = head_pose

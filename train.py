@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn as nn
 #from EMOModel import EMOModel
-from FaceMeshMaskGenerator import FaceMeshMaskGenerator
+
 from FramesEncoder import FramesEncoder
 
 from SpeedEncoder import SpeedEncoder
@@ -53,8 +53,6 @@ def custom_collate(batch):
 # BACKBONE ~ MagicAnimate class
 def main(cfg):
 
-    
-  
 
     # # Assuming you have the other required inputs (noisy_latents, timesteps, ref_image, speed_buckets)
     # # Instantiate the VAE and image encoder
