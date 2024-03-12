@@ -25,3 +25,8 @@ extract_and_save_frames(video_path,'.')
 custom chatgpt (using diffusers models / pipelines)
 https://chat.openai.com/g/g-UzGVIbBpB-diffuser-wizard
 prompt - https://gist.github.com/johndpope/04879444d0979f244fb88c4929b989e9
+
+
+
+decord + ubuntu cuda12 / 3090 support (for gpu acceleration in video reading)
+https://github.com/johndpope/decord-cuda12

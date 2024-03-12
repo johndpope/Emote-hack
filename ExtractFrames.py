@@ -83,4 +83,3 @@ def extract_and_save_frames(video_path, images_folder):
 # Assuming your video is named 'M2Ohb0FAaJU_1.mp4' and located in the current directory
 video_path = 'M2Ohb0FAaJU_1.mp4'
 extract_and_save_frames(video_path,'./images_folder')
-# NOTE - use the decord VideoReader which can load to GPU for native tensor reads of frames.

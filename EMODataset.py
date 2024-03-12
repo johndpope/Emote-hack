@@ -16,22 +16,24 @@ from FaceLocator import FaceMaskGenerator
 decord.logging.set_level(decord.logging.ERROR)
 os.environ["OPENCV_LOG_LEVEL"]="FATAL"
 import cv2
-
+from typing import List, Tuple, Dict, Any
+# from torchvision.transforms.functional import to_tensor
 class EmoVideoReader(VideoReader):
 
-    def __init__(self,pixel_transform,cond_transform,state=None):
+    def __init__(self, pixel_transform: transforms.Compose, cond_transform: transforms.Compose, state: torch.Tensor = None):
         super.__init__()
         
         self.pixel_transform = pixel_transform
         self.cond_transform = cond_transform
         self.state = state
 
-    def augmentedImageAtFrame(self,index):
+    def augmentedImageAtFrame(self, index: int) -> torch.Tensor:
 
         img = self[index]
         return self.augmentation(img,self.pixel_transform,self.state)
     
-    def augmentation(self, images, transform, state=None):
+    def augmentation(self, images: Any, transform: transforms.Compose, state: torch.Tensor = None) -> torch.Tensor:
+
             if state is not None:
                 torch.set_rng_state(state)
             if isinstance(images, List):
@@ -43,7 +45,7 @@ class EmoVideoReader(VideoReader):
     
 
 class EMODataset(Dataset):
-    def __init__(self, data_dir,sample_rate,n_sample_frames, width,  height,  img_scale=(1.0, 1.0),  img_ratio=(0.9, 1.0), video_dir =".", drop_ratio=0.1,  json_file="", stage='stage1', transform=None):
+    def __init__(self, data_dir: str, sample_rate: int, n_sample_frames: int, width: int, height: int, img_scale: Tuple[float, float], img_ratio: Tuple[float, float] = (0.9, 1.0), video_dir: str = ".", drop_ratio: float = 0.1, json_file: str = "", stage: str = 'stage1', transform: transforms.Compose = None):
         self.sample_rate = sample_rate
         self.n_sample_frames = n_sample_frames
         self.width = width
@@ -89,11 +91,11 @@ class EMODataset(Dataset):
         self.video_ids = list(self.celebvhq_info['clips'].keys())
 
         decord.bridge.set_bridge('torch')  # Optional: This line sets decord to directly output PyTorch tensors.
-        self.ctx = decord.cpu()
+        self.ctx = decord.gpu(0) # https://github.com/johndpope/decord-cuda12
 
 
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.video_ids)
 
     def augmentation(self, images, transform, state=None):
@@ -106,17 +108,9 @@ class EMODataset(Dataset):
                 ret_tensor = transform(images)  # (c, h, w)
             return ret_tensor
     
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> Dict[str, Any]:
         video_id = self.video_ids[index]
-        # video_info = self.celebvhq_info['clips'][video_id]
-
-
-        # print("video_id:", video_id, "video_info:", video_info)
-        # ytb_id = video_info['ytb_id']
-
-
         mp4_path = os.path.join(self.video_dir, f"{video_id}.mp4")
-
 
         if self.stage == 'stage1':
             video_reader = VideoReader(mp4_path, ctx=self.ctx)
@@ -125,22 +119,28 @@ class EMODataset(Dataset):
             all_frame_masks = []
 
             for frame_idx in range(video_length):
-                img_tensor = video_reader[frame_idx]  # img is now a PyTorch tensor
+     
+             # Extract the frame from video_reader, which is a PyTorch tensor
+                ref_img_tensor = video_reader[frame_idx]
+                                # Add assertions before permute
+                assert isinstance(ref_img_tensor, torch.Tensor), "The frame must be a PyTorch tensor."
+                assert ref_img_tensor.ndim == 3, "The tensor must be 3-dimensional."
+                assert ref_img_tensor.shape[0] == 3 or ref_img_tensor.shape[2] == 3, "The tensor must have 3 channels."
 
-                # Convert the image from BGR to RGB while maintaining [C, H, W] format
-                img_rgb_tensor = img_tensor[[2, 1, 0], :, :]  # Rearrange channels from BGR to RGB
-
+                # Continue with permute and normalization
+                ref_img_tensor = ref_img_tensor.permute(2, 0, 1).float() / 255.0  # Convert to CHW and normalize
+ 
+                ref_img_pil = transforms.ToPILImage()(ref_img_tensor.cpu())  
                 # Generate the mask using the face mask generator
-                mask = self.face_mask_generator.generate_mask(img_rgb_tensor)
+                mask = self.face_mask_generator.generate_face_region_mask_pil_image(ref_img_pil)
                 all_frame_masks.append(mask)
-
-                # Append the original tensor, not the numpy version
-                all_frame_images.append(img_tensor)
+                all_frame_images.append(ref_img_tensor)
 
             sample = {
                 "video_id": video_id,
                 "images": all_frame_images,
-                "masks": all_frame_masks
+                "masks": all_frame_masks,
+ 
             }
 
 
@@ -162,8 +162,7 @@ class EMODataset(Dataset):
                 "f_idx" : 0,
                 "video_id": video_id,
              
-                "audio_features": 0,
-                # "pixel_values_ref_img": pixel_values_ref_img
+                "audio_features": 0
             }
 
 

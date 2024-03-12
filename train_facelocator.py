@@ -12,33 +12,36 @@ from tqdm import tqdm
 from FaceLocator import FaceLocator,FaceMaskGenerator
 import numpy as np
 from torchvision.transforms.functional import pad
+from typing import List, Dict, Any
 
-def padded_collate(batch):
+
+
+
+def padded_collate(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+
     assert isinstance(batch, list), "Batch should be a list"
 
-    # Unpack the images and masks from the batch
-    images = [item['images'] for item in batch]
-    masks = [item['masks'] for item in batch]
+    # Unpack and flatten the images and masks from the batch
+    all_images = []
+    all_masks = []
+    for item in batch:
+        # Assuming each 'images' field is a list of tensors for a single video
+        all_images.extend(item['images'])  # Flatten the list of lists into a single list
+        all_masks.extend(item['masks'])  # Flatten the list of lists into a single list
 
 
-    # Convert images and masks to tensors if they are not already
-    images = [torch.tensor(img, dtype=torch.float32) if not isinstance(img, torch.Tensor) else img for img in images]
-    masks = [torch.tensor(mask, dtype=torch.float32) if not isinstance(mask, torch.Tensor) else mask for mask in masks]
-
-    # Assert that all images and masks are now tensors
-    assert all(isinstance(img, torch.Tensor) for img in images), "All images must be PyTorch tensors"
-    assert all(isinstance(mask, torch.Tensor) for mask in masks), "All masks must be PyTorch tensors"
+    assert all(isinstance(img, torch.Tensor) for img in all_images), "All images must be PyTorch tensors"
+    assert all(isinstance(mask, torch.Tensor) for mask in all_masks), "All masks must be PyTorch tensors"
 
 
     # Determine the maximum dimensions
-    assert all(img.ndim == 3 for img in images), "All images must be 3D tensors"
-    max_height = max(img.shape[1] for img in images)
-    max_width = max(img.shape[2] for img in images)
+    assert all(img.ndim == 3 for img in all_images), "All images must be 3D tensors"
+    max_height = max(img.shape[1] for img in all_images)
+    max_width = max(img.shape[2] for img in all_images)
 
     # Pad the images and masks
-    padded_images = [F.pad(img, (0, max_width - img.shape[2], 0, max_height - img.shape[1])) for img in images]
-    padded_masks = [F.pad(mask, (0, max_width - mask.shape[2], 0, max_height - mask.shape[1])) for mask in masks]
-
+    padded_images = [F.pad(img, (0, max_width - img.shape[2], 0, max_height - img.shape[1])) for img in all_images]
+    padded_masks = [F.pad(mask, (0, max_width - mask.shape[2], 0, max_height - mask.shape[1])) for mask in all_masks]
 
 
     # Stack the padded images and masks
@@ -52,7 +55,9 @@ def padded_collate(batch):
     return {'images': images_tensor, 'masks': masks_tensor}
 
 
-def train_model(model, data_loader, face_mask_generator, optimizer, criterion, device, num_epochs):
+def train_model(model: nn.Module, data_loader: DataLoader, face_mask_generator: FaceMaskGenerator,
+                optimizer: torch.optim.Optimizer, criterion: nn.Module, device: torch.device, num_epochs: int) -> nn.Module:
+   
     assert isinstance(num_epochs, int) and num_epochs > 0, "Number of epochs must be a positive integer"
     model.train()
 
@@ -103,7 +108,7 @@ def train_model(model, data_loader, face_mask_generator, optimizer, criterion, d
 
 
 # BACKBONE ~ MagicAnimate class
-def main(cfg):
+def main(cfg: OmegaConf) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     transform = transforms.Compose([

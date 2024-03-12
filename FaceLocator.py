@@ -6,6 +6,7 @@ import mediapipe as mp
 import torch.nn as nn
 import torch.nn.functional as F
 import os
+from PIL import Image
 
 os.environ["OPENCV_LOG_LEVEL"]="FATAL"
 
@@ -109,44 +110,57 @@ class FaceMaskGenerator:
         self.face_detection.close()
         self.face_mesh.close()
 
-    def generate_mask(self, image_tensor):
-        assert isinstance(image_tensor, torch.Tensor), "Input must be a PyTorch tensor"
-        assert image_tensor.ndim == 3, "Input tensor must be 3-dimensional (C, H, W)"
-        assert image_tensor.shape[0] == 3, "Input tensor must have 3 channels (RGB)"
+  
 
-        # Ensure the tensor is on CPU and convert to numpy array
-        if image_tensor.is_cuda:
-            image_tensor = image_tensor.cpu()
-        image = image_tensor.numpy()
+    def generate_face_region_mask_pil_image(self, frame_image):
+        # Convert from PIL Image to NumPy array in BGR format
+        frame_np = np.array(frame_image.convert('RGB'))  # Ensure the image is in RGB
+        frame_bgr = cv2.cvtColor(frame_np, cv2.COLOR_RGB2BGR)
 
-        # Convert image to uint8 if it's not already
-        if image.dtype != np.uint8:
-            image = (image * 255).astype(np.uint8)
+        height, width, _ = frame_bgr.shape
 
-        # Convert the tensor from [C, H, W] to [H, W, C] format for OpenCV
-        image = image.transpose(1, 2, 0)
-
-        # Convert the image from BGR to RGB
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-        # Create a blank mask with the same dimensions as the image
-        mask = np.zeros(image.shape[:2], dtype=np.uint8)
+        # Create a blank mask with the same dimensions as the frame
+        mask = np.zeros((height, width), dtype=np.uint8)
 
         # Detect faces
-        detection_results = self.face_detection.process(image_rgb)
+        detection_results = self.face_detection.process(frame_bgr)
+
+        # Assert that detection_results is not None
+        assert detection_results is not None, "The face detection results must not be None."
+
+        # Create a debug image by copying the BGR frame TODO - these need to have more padding.
+        # sometimes videos are too dark to detect faces...
+        if False:
+            debug_image = frame_bgr.copy()
+
+        # If faces are detected
+            if detection_results.detections:
+                for detection in detection_results.detections:
+                    bboxC = detection.location_data.relative_bounding_box
+                    xmin = int(bboxC.xmin * width)
+                    ymin = int(bboxC.ymin * height)
+                    bbox_width = int(bboxC.width * width)
+                    bbox_height = int(bboxC.height * height)
+
+                    # Draw a rectangle on the debug image for each detection
+                    cv2.rectangle(debug_image, (xmin, ymin), (xmin + bbox_width, ymin + bbox_height), (0, 255, 0), 2)
+
+        # # Save the input frame as a debug image (before drawing rectangles)
+            cv2.imwrite('input_frame.png', frame_bgr)
+
+        # # Save the debug image with rectangles around detected faces
+            cv2.imwrite('debug_image.png', debug_image)
 
         # If faces are detected, find the face landmarks
         if detection_results.detections:
             # Apply the face mesh model
-            mesh_results = self.face_mesh.process(image_rgb)
+            mesh_results = self.face_mesh.process(frame_bgr)
 
             if mesh_results.multi_face_landmarks:
                 for face_landmarks in mesh_results.multi_face_landmarks:
-                    # Draw the face mesh on the mask
                     for landmark in face_landmarks.landmark:
-                        x = min(int(landmark.x * image.shape[1]), image.shape[1] - 1)
-                        y = min(int(landmark.y * image.shape[0]), image.shape[0] - 1)
+                        x = min(int(landmark.x * width), width - 1)
+                        y = min(int(landmark.y * height), height - 1)
                         mask[y, x] = 255
 
         return mask
-
