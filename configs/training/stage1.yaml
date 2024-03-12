@@ -3,7 +3,13 @@ data:
   train_width: 768 
   train_height: 480 
   sample_margin: 30  
-
+  sample_rate: 4 
+  n_sample_frames: 1
+training:
+  batch_size: 20 
+  num_workers: 0
+  learning_rate: 1.0e-5
+  num_epochs: 20
 solver:
   gradient_accumulation_steps: 1
   mixed_precision: 'fp16'
@@ -46,7 +52,7 @@ uncond_ratio: 0.1
 noise_offset: 0.05
 snr_gamma: 5.0
 enable_zero_snr: True 
-pose_guider_pretrain: True 
+
 
 seed: 12580
 resume_from_checkpoint: ''

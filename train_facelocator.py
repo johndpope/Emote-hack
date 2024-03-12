@@ -123,5 +123,5 @@ def main(cfg):
     print(f"Trained model saved at: {save_path}")
 
 if __name__ == "__main__":
-    config = OmegaConf.load("./configs/training/stage3.yaml")
+    config = OmegaConf.load("./configs/training/stage1.yaml")
     main(config)
