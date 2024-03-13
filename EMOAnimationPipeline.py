@@ -21,11 +21,9 @@
 # limitations under the License.
 """
 TODO:
-1. support multi-controlnet
-2. [DONE] support DDIM inversion
-3. support Prompt-to-prompt
+1. Finish this
 """
-
+from animated_diff import AnimatedDiff
 import inspect, math
 from typing import Callable, List, Optional, Union
 from dataclasses import dataclass
@@ -72,7 +70,6 @@ import logging
 import os
 
 from Net import EMOModel
-from EMOAnimationPipeline import EMOAnimationPipeline
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -845,27 +842,25 @@ class EMOAnimationPipeline(DiffusionPipeline):
 
 
 
+
+
+
 def seed_everything(seed):
-    import random
-
-    import numpy as np
-
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed % (2**32))
     random.seed(seed)
 
-
 def main(cfg):
     accelerator = Accelerator(log_with="mlflow", project_dir="./mlruns")
     logging.basicConfig(level=logging.INFO)
-
+    
     if cfg.seed is not None:
         seed_everything(cfg.seed)
-
+    
     save_dir = f"{cfg.output_dir}/{cfg.exp_name}"
     os.makedirs(save_dir, exist_ok=True)
-
+    
     vae = AutoencoderKL.from_pretrained(cfg.vae_model_path).to("cuda")
     image_enc = CLIPVisionModelWithProjection.from_pretrained(cfg.image_encoder_path).to("cuda")
     
@@ -878,10 +873,22 @@ def main(cfg):
     
     emo_model = EMOModel(vae, image_enc, emo_config).to("cuda")
     optimizer = torch.optim.AdamW(emo_model.parameters(), lr=cfg.solver.learning_rate)
-
+    
+    # Load pretrained AnimateDiff model
+    animated_diff_model = AnimatedDiff.from_pretrained("path/to/animated_diff_weights")
+    
+    # Assign AnimateDiff weights to the backbone network (UNet3DConditionModel)
+    emo_model.denoising_unet.load_state_dict(animated_diff_model.unet.state_dict(), strict=False)
+    
+    # Assign AnimateDiff weights to the temporal modules
+    emo_model.denoising_unet.temporal_module.load_state_dict(animated_diff_model.temporal_module.state_dict(), strict=False)
+    
+    # Assign AnimateDiff weights to relevant attention layers
+    emo_model.audio_attention_layers.load_state_dict(animated_diff_model.attention_layers.state_dict(), strict=False)
+    
     # Accelerator preparation
     emo_model, optimizer = accelerator.prepare(emo_model, optimizer)
-
+    
     # Initialize EMOAnimationPipeline
     scheduler = DDIMScheduler(beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", num_train_timesteps=1000)
     emo_pipeline = EMOAnimationPipeline(
@@ -890,21 +897,20 @@ def main(cfg):
         reference_unet=emo_model.reference_unet,
         denoising_unet=emo_model.denoising_unet,
         face_locator=emo_model.face_locator,
-        speed_encoder=emo_model.speed_embedding,
+        speed_encoder=emo_model.speed_encoder,
         scheduler=scheduler,
     ).to("cuda")
-
+    
     # Training loop (simplified)
     for epoch in range(cfg.num_epochs):
         for batch in cfg.train_dataloader:
             # Simplified training step
             optimizer.zero_grad()
-            output = emo_model(batch['noisy_latents'], batch['timesteps'], batch['ref_image'],
-                               batch['motion_frames'], batch['audio_features'], batch['speed_embeddings'])
+            output = emo_model(batch['noisy_latents'], batch['timesteps'], batch['ref_image'], batch['motion_frames'], batch['audio_features'], batch['head_rotation_speeds'])
             loss = F.mse_loss(output, batch['target'])
             accelerator.backward(loss)
             optimizer.step()
-
+            
             # Calculate signal-to-noise ratio using EMOAnimationPipeline
             with torch.no_grad():
                 generated_video = emo_pipeline(
@@ -923,7 +929,7 @@ def main(cfg):
                 
                 # Log the signal-to-noise ratio
                 accelerator.log({"snr": snr}, step=epoch)
-
+    
     accelerator.end_training()
 
 if __name__ == "__main__":
