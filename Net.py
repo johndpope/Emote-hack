@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
-from decord import VideoReader
+from decord import VideoReader,AVReader
 from diffusers import AutoencoderKL
 from diffusers.models.modeling_utils import ModelMixin
 from magicanimate.models.controlnet import UNet2DConditionModel
@@ -24,6 +24,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.transforms import ToTensor
 from transformers import Wav2Vec2Model, Wav2Vec2Processor
+
 
 
 # Use decord's CPU or GPU context
@@ -1068,7 +1069,50 @@ class EMODataset(Dataset):
         video_id = self.video_ids[index]
         mp4_path = os.path.join(self.video_dir, f"{video_id}.mp4")
 
-        if self.stage == 'stage1-vae':
+        if  self.stage == 'stage0-facelocator':
+            video_reader = VideoReader(mp4_path, ctx=self.ctx)
+            video_length = len(video_reader)
+            
+            transform_to_tensor = ToTensor()
+            # Read frames and generate masks
+            vid_pil_image_list = []
+            mask_tensor_list = []
+            face_locator = FaceHelper()
+        
+            speeds_tensor_list = []
+            for frame_idx in range(video_length):
+                # Read frame and convert to PIL Image
+                frame = Image.fromarray(video_reader[frame_idx].numpy())
+
+                # Transform the frame
+                state = torch.get_rng_state()
+                pixel_values_frame = self.augmentation(frame, self.pixel_transform, state)
+                vid_pil_image_list.append(pixel_values_frame)
+
+
+                # Convert the transformed frame back to NumPy array in RGB format
+                transformed_frame_np = np.array(pixel_values_frame.permute(1, 2, 0).numpy() * 255, dtype=np.uint8)
+                transformed_frame_np = cv2.cvtColor(transformed_frame_np, cv2.COLOR_RGB2BGR)
+
+                # Generate the mask using the face mask generator
+                mask_np = self.face_mask_generator.generate_face_region_mask_np_image(transformed_frame_np, video_id, frame_idx)
+
+                    # Convert the mask from numpy array to PIL Image
+                mask_pil = Image.fromarray(mask_np)
+
+                # Transform the PIL Image mask to a PyTorch tensor
+                mask_tensor = transform_to_tensor(mask_pil)
+                mask_tensor_list.append(mask_tensor)
+            
+            # Convert list of lists to a tensor
+   
+            sample = {
+                "video_id": video_id,
+                "images": vid_pil_image_list,
+                "masks": mask_tensor_list,
+            }
+
+        elif self.stage == 'stage1-vae':
             video_reader = VideoReader(mp4_path, ctx=self.ctx)
             video_length = len(video_reader)
             
@@ -1114,56 +1158,86 @@ class EMODataset(Dataset):
             }
 
 
-        elif  self.stage == 'stage0-facelocator':
-            video_reader = VideoReader(mp4_path, ctx=self.ctx)
-            video_length = len(video_reader)
-            
+       
+
+
+        elif self.stage == 'stage2-temporal-audio':
+            av_reader = AVReader(mp4_path, ctx=self.ctx)
+            av_length = len(av_reader)
             transform_to_tensor = ToTensor()
+            
             # Read frames and generate masks
             vid_pil_image_list = []
-            mask_tensor_list = []
-            face_locator = FaceHelper()
-        
-            speeds_tensor_list = []
-            for frame_idx in range(video_length):
+            audio_frame_tensor_list = []
+            
+            for frame_idx in range(av_length):
+                audio_frame, video_frame = av_reader[frame_idx]
+                
                 # Read frame and convert to PIL Image
-                frame = Image.fromarray(video_reader[frame_idx].numpy())
-
+                frame = Image.fromarray(video_frame.numpy())
+                
                 # Transform the frame
                 state = torch.get_rng_state()
                 pixel_values_frame = self.augmentation(frame, self.pixel_transform, state)
                 vid_pil_image_list.append(pixel_values_frame)
-
-
-                # Convert the transformed frame back to NumPy array in RGB format
-                transformed_frame_np = np.array(pixel_values_frame.permute(1, 2, 0).numpy() * 255, dtype=np.uint8)
-                transformed_frame_np = cv2.cvtColor(transformed_frame_np, cv2.COLOR_RGB2BGR)
-
-                # Generate the mask using the face mask generator
-                mask_np = self.face_mask_generator.generate_face_region_mask_np_image(transformed_frame_np, video_id, frame_idx)
-
-                    # Convert the mask from numpy array to PIL Image
-                mask_pil = Image.fromarray(mask_np)
-
-                # Transform the PIL Image mask to a PyTorch tensor
-                mask_tensor = transform_to_tensor(mask_pil)
-                mask_tensor_list.append(mask_tensor)
+                
+                # Convert audio frame to tensor
+                audio_frame_tensor = transform_to_tensor(audio_frame.asnumpy())
+                audio_frame_tensor_list.append(audio_frame_tensor)
             
-            # Convert list of lists to a tensor
-   
             sample = {
                 "video_id": video_id,
                 "images": vid_pil_image_list,
-                "masks": mask_tensor_list,
+                "audio_frames": audio_frame_tensor_list,
             }
-
-
-
-        elif self.stage == 'stage3':
-
         
+        elif self.stage == 'stage3-speedlayers':
+            av_reader = AVReader(mp4_path, ctx=self.ctx)
+            av_length = len(av_reader)
+            transform_to_tensor = ToTensor()
+            
+            # Read frames and generate masks
+            vid_pil_image_list = []
+            audio_frame_tensor_list = []
+            head_rotation_speeds = []
+            face_locator = FaceHelper()
+            for frame_idx in range(av_length):
+                audio_frame, video_frame = av_reader[frame_idx]
+                
+                # Read frame and convert to PIL Image
+                frame = Image.fromarray(video_frame.numpy())
+                
+                # Transform the frame
+                state = torch.get_rng_state()
+                pixel_values_frame = self.augmentation(frame, self.pixel_transform, state)
+                vid_pil_image_list.append(pixel_values_frame)
+                
+                # Convert audio frame to tensor
+                audio_frame_tensor = transform_to_tensor(audio_frame.asnumpy())
+                audio_frame_tensor_list.append(audio_frame_tensor)
 
-            return {}
+                 # Calculate head rotation speeds at the current frame (previous 1 frames)
+                head_rotation_speeds = face_locator.get_head_pose_velocities_at_frame(video_reader, frame_idx,1)
+
+                # Check if head rotation speeds are successfully calculated
+                if head_rotation_speeds:
+                    head_tensor = transform_to_tensor(head_rotation_speeds)
+                    speeds_tensor_list.append(head_tensor)
+                else:
+                    # Provide a default value if no speeds were calculated
+                    #expected_speed_vector_length = 3
+                    #default_speeds = torch.zeros(1, expected_speed_vector_length)  # Shape [1, 3]
+                    default_speeds = (0.0, 0.0, 0.0)  # List containing one tuple with three elements
+                    head_tensor = transform_to_tensor(default_speeds)
+                    speeds_tensor_list.append(head_tensor)
+            
+            sample = {
+                "video_id": video_id,
+                "images": vid_pil_image_list,
+                "audio_frames": audio_frame_tensor_list,
+                "speeds": head_rotation_speeds
+            }
+        
 
 
         return sample
