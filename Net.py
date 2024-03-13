@@ -1068,7 +1068,53 @@ class EMODataset(Dataset):
         video_id = self.video_ids[index]
         mp4_path = os.path.join(self.video_dir, f"{video_id}.mp4")
 
-        if self.stage == 'stage1':
+        if self.stage == 'stage1-vae':
+            video_reader = VideoReader(mp4_path, ctx=self.ctx)
+            video_length = len(video_reader)
+            
+            transform_to_tensor = ToTensor()
+            # Read frames and generate masks
+            vid_pil_image_list = []
+            mask_tensor_list = []
+            face_locator = FaceHelper()
+        
+            speeds_tensor_list = []
+            for frame_idx in range(video_length):
+                # Read frame and convert to PIL Image
+                frame = Image.fromarray(video_reader[frame_idx].numpy())
+
+                # Transform the frame
+                state = torch.get_rng_state()
+                pixel_values_frame = self.augmentation(frame, self.pixel_transform, state)
+                vid_pil_image_list.append(pixel_values_frame)
+
+                # Calculate head rotation speeds at the current frame
+                head_rotation_speeds = face_locator.get_head_pose_velocities_at_frame(video_reader, frame_idx, 1)
+
+                # Check if head rotation speeds are successfully calculated
+                if head_rotation_speeds:
+                    head_tensor = transform_to_tensor(head_rotation_speeds)
+                    speeds_tensor_list.append(head_tensor)
+                else:
+                    # Provide a default value if no speeds were calculated
+                    #expected_speed_vector_length = 3
+                    #default_speeds = torch.zeros(1, expected_speed_vector_length)  # Shape [1, 3]
+                    default_speeds = (0.0, 0.0, 0.0)  # List containing one tuple with three elements
+                    head_tensor = transform_to_tensor(default_speeds)
+                    speeds_tensor_list.append(head_tensor)
+
+            
+            # Convert list of lists to a tensor
+   
+            sample = {
+                "video_id": video_id,
+                "images": vid_pil_image_list,
+                "motion_frames" : [],
+                "speeds": speeds_tensor_list
+            }
+
+
+        elif  self.stage == 'stage0-facelocator':
             video_reader = VideoReader(mp4_path, ctx=self.ctx)
             video_length = len(video_reader)
             
@@ -1102,21 +1148,6 @@ class EMODataset(Dataset):
                 # Transform the PIL Image mask to a PyTorch tensor
                 mask_tensor = transform_to_tensor(mask_pil)
                 mask_tensor_list.append(mask_tensor)
-
-         
-                # Calculate head rotation speeds at the current frame
-                head_rotation_speeds = face_locator.get_head_pose_velocities_at_frame(video_reader, frame_idx, 1)
-
-                # Check if head rotation speeds are successfully calculated
-                if head_rotation_speeds:
-                    speeds_tensor_list.append(head_rotation_speeds)
-                else:
-                    # Provide a default value if no speeds were calculated
-                    #expected_speed_vector_length = 3
-                    #default_speeds = torch.zeros(1, expected_speed_vector_length)  # Shape [1, 3]
-                    default_speeds = (0.0, 0.0, 0.0)  # List containing one tuple with three elements
-                    speeds_tensor_list.append(default_speeds)
-
             
             # Convert list of lists to a tensor
    
@@ -1124,21 +1155,8 @@ class EMODataset(Dataset):
                 "video_id": video_id,
                 "images": vid_pil_image_list,
                 "masks": mask_tensor_list,
-                "speeds": speeds
-               
             }
 
-
-        elif self.stage == 'stage2':
-            # Stage 2: Video Training
-
-            
-            sample = {
-                "f_idx" : 0,
-                "video_id": video_id,
-             
-                "audio_features": 0
-            }
 
 
         elif self.stage == 'stage3':

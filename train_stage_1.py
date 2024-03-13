@@ -105,12 +105,14 @@ def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cf
         running_loss = 0.0
 
         for batch in data_loader:
-            reference_images = batch['reference_images'].to(device)
-            motion_frames = batch['motion_frames'].to(device)
-            speed_values = batch['speed_values'].to(device)
+            reference_images = batch['images'].to(device)
+            motion_frames = batch['motion_frames'].to(device) # TODO - this is not going to work right now - it wants a 2x on all the images
+            speed_values = batch['speeds'].to(device)
             target_frames = torch.cat([reference_images, motion_frames], dim=1).to(device)
 
             optimizer.zero_grad()  # Zero the parameter gradients
+
+            #   def forward(self, reference_image, motion_frames, speed_value):
             recon_frames, _, _, _, _ = model(reference_images, motion_frames, speed_values)  # Forward pass
             loss = criterion(recon_frames, target_frames)  # Compute the loss
             loss.backward()  # Backward pass: compute gradient of the loss with respect to model parameters
@@ -145,7 +147,7 @@ def main(cfg: OmegaConf) -> None:
         data_dir='./images_folder',
         video_dir='/home/oem/Downloads/CelebV-HQ/celebvhq/35666',
         json_file='./data/celebvhq_info.json',
-        stage='stage1',
+        stage='stage1-vae',
         transform=transform
     )
 

@@ -148,7 +148,7 @@ def main(cfg: OmegaConf) -> None:
         data_dir='./images_folder',
         video_dir='/home/oem/Downloads/CelebV-HQ/celebvhq/35666',
         json_file='./data/celebvhq_info.json',
-        stage='stage1',
+        stage='stage0-facelocator',
         transform=transform
     )
 
@@ -177,5 +177,5 @@ def main(cfg: OmegaConf) -> None:
 
 
 if __name__ == "__main__":
-    config = OmegaConf.load("./configs/training/stage1.yaml")
+    config = OmegaConf.load("./configs/training/stage0.yaml")
     main(config)
