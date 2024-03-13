@@ -1,38 +1,37 @@
+import json
+import os
+from math import cos, sin, pi
+from typing import List, Tuple, Dict, Any
+from camera import Camera
+import cv2
+import decord
+import librosa
+import mediapipe as mp
+import numpy as np
+import soundfile as sf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from magicanimate.models.unet import UNet3DConditionModel
-from diffusers.models.modeling_utils import ModelMixin
-from magicanimate.models.unet_controlnet import  UNet3DConditionModel
-from magicanimate.models.controlnet import UNet2DConditionModel
-
-import json
 import torchvision.transforms as transforms
+from decord import VideoReader
+from diffusers import AutoencoderKL
+from diffusers.models.modeling_utils import ModelMixin
+from magicanimate.models.controlnet import UNet2DConditionModel
+from magicanimate.models.unet import UNet3DConditionModel
+from magicanimate.models.unet_controlnet import UNet3DConditionModel
+from moviepy.editor import VideoFileClip
 from PIL import Image
 from torch.utils.data import Dataset
-from decord import VideoReader
-import decord
-from typing import List
 from torchvision.transforms import ToTensor
-import numpy as np
-from moviepy.editor import VideoFileClip
-import os
-import librosa
-from transformers import Wav2Vec2Processor, Wav2Vec2Model
-import soundfile as sf
-import cv2
-import mediapipe as mp
+from transformers import Wav2Vec2Model, Wav2Vec2Processor
 
-from math import cos, sin, pi
 
-# ONLy external file - I think this is wrong 
-from camera import Camera
 # Use decord's CPU or GPU context
 # For GPU: decord.gpu(0)
 decord.logging.set_level(decord.logging.ERROR)
 os.environ["OPENCV_LOG_LEVEL"]="FATAL"
 
-from typing import List, Tuple, Dict, Any
+
 
 
 # JAM EVERYTHING INTO 1 CLASS - so Claude 3 / Chatgpt can analyze at once
@@ -94,10 +93,12 @@ class FramesEncodingVAE(nn.Module):
     FramesEncodingVAE combines the encoding of reference and motion frames with additional components
     such as ReferenceNet and SpeedEncoder as depicted in the Frames Encoding part of the diagram.
     """
-    def __init__(self, input_channels, latent_dim, img_size, reference_net):
+    def __init__(self, latent_dim, img_size, reference_net):
         super(FramesEncodingVAE, self).__init__()
-        self.encoder = Encoder(input_channels, latent_dim, img_size)
-        self.decoder = Decoder(latent_dim, input_channels, img_size)
+        self.vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse")
+        self.vae.to(device)  # Move the model to the appropriate device (e.g., GPU)
+        self.latent_dim = latent_dim
+        self.img_size = img_size
         self.reference_net = reference_net
 
         # SpeedEncoder can be implemented as needed.
@@ -106,44 +107,33 @@ class FramesEncodingVAE(nn.Module):
 
         self.speed_encoder = SpeedEncoder(num_speed_buckets, speed_embedding_dim)
 
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + eps * std
-
     def forward(self, reference_image, motion_frames, speed_value):
         # Encode reference and motion frames
-        reference_mu, reference_logvar = self.encoder(reference_image)
-        motion_mu, motion_logvar = self.encoder(motion_frames)
+        reference_latents = self.vae.encode(reference_image).latent_dist.sample()
+        motion_latents = self.vae.encode(motion_frames).latent_dist.sample()
 
-        # Reparameterize reference and motion latent vectors
-        reference_z = self.reparameterize(reference_mu, reference_logvar)
-        motion_z = self.reparameterize(motion_mu, motion_logvar)
+        # Scale the latent vectors (optional, depends on the VAE scaling factor)
+        reference_latents = reference_latents * 0.18215
+        motion_latents = motion_latents * 0.18215
 
         # Process reference features with ReferenceNet
-        reference_features = self.reference_net(reference_z)
+        reference_features = self.reference_net(reference_latents)
 
         # Embed speed value
         speed_embedding = self.speed_encoder(speed_value)
 
         # Combine features
-        combined_features = torch.cat([reference_features, motion_z, speed_embedding], dim=1)
+        combined_features = torch.cat([reference_features, motion_latents, speed_embedding], dim=1)
 
         # Decode the combined features
-        reconstructed_frames = self.decoder(combined_features)
+        reconstructed_frames = self.vae.decode(combined_features).sample
 
-        return reconstructed_frames, reference_mu, reference_logvar, motion_mu, motion_logvar
+        return reconstructed_frames
 
-    def vae_loss(self, recon_frames, reference_image, motion_frames, reference_mu, reference_logvar, motion_mu, motion_logvar):
-        # Reconstruction loss (MSE or BCE, depending on the final activation of the decoder)
-        recon_loss = F.mse_loss(recon_frames, torch.cat([reference_image, motion_frames], dim=1), reduction='sum')
-        
-        # KL divergence loss for reference and motion latent vectors
-        kl_loss_reference = -0.5 * torch.sum(1 + reference_logvar - reference_mu.pow(2) - reference_logvar.exp())
-        kl_loss_motion = -0.5 * torch.sum(1 + motion_logvar - motion_mu.pow(2) - motion_logvar.exp())
-        
-        return recon_loss + kl_loss_reference + kl_loss_motion
-    
+    def vae_loss(self, recon_frames, reference_image, motion_frames):
+        # Compute VAE loss using the VAE's loss function
+        loss = self.vae.loss_function(recon_frames, torch.cat([reference_image, motion_frames], dim=1))
+        return loss["loss"]
 
 
 
