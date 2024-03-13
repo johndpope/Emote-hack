@@ -3,12 +3,7 @@ import torch
 import torch.nn as nn
 #from EMOModel import EMOModel
 
-from FramesEncoder import FramesEncoder
-
-from SpeedEncoder import SpeedEncoder
-from VAEEncoder import VAE, ImageEncoder
-from EMODataset import EMODataset
-from Wav2VecFeatureExtractor import Wav2VecFeatureExtractor
+from Net import  SpeedEncoder, EMODataset, Wav2VecFeatureExtractor
 import torch.optim as optim
 import torchvision.transforms as transforms
 from torch.utils.data  import DataLoader
@@ -85,10 +80,7 @@ def main(cfg):
             transform=transform)
     stage3_dataloader = DataLoader(stage3_dataset, batch_size=16, shuffle=True, num_workers=0,collate_fn=custom_collate)
 
-    num_speed_buckets = 9
-    speed_embedding_dim = 64
-
-    speed_layers = SpeedEncoder(num_speed_buckets, speed_embedding_dim)
+ 
 
     # Define loss function and optimizer
     criterion = nn.MSELoss()

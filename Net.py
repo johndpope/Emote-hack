@@ -23,7 +23,12 @@ from transformers import Wav2Vec2Processor, Wav2Vec2Model
 import soundfile as sf
 import cv2
 import mediapipe as mp
+# Use decord's CPU or GPU context
+# For GPU: decord.gpu(0)
+decord.logging.set_level(decord.logging.ERROR)
+os.environ["OPENCV_LOG_LEVEL"]="FATAL"
 
+from typing import List, Tuple, Dict, Any
 
 
 # JAM EVERYTHING INTO 1 CLASS - so Claude 3 / Chatgpt can analyze at once
@@ -92,14 +97,10 @@ class FramesEncodingVAE(nn.Module):
         self.reference_net = reference_net
 
         # SpeedEncoder can be implemented as needed.
-        self.speed_encoder = nn.Sequential(
-            # Dummy layers for illustrative purposes; replace with actual speed encoding mechanism.
-            nn.Linear(1, 32),
-            nn.ReLU(),
-            nn.Linear(32, 64),
-            nn.ReLU(),
-            nn.Linear(64, latent_dim),
-        )
+        num_speed_buckets = 9
+        speed_embedding_dim = 64
+
+        self.speed_encoder = SpeedEncoder(num_speed_buckets, speed_embedding_dim)
 
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5 * logvar)
@@ -182,7 +183,7 @@ class ReferenceNet(nn.Module):
         feature_scale = 64  # Example scaling factor
 
         # Reference UNet (ReferenceNet)
-        self.reference_unet = UNet3DConditionModel(**config.reference_unet_config)
+        self.reference_unet = UNet2DConditionModel(**config.reference_unet_config)
         # Initialize the components
         self.vae = vae_model
 
@@ -400,13 +401,7 @@ class EMOModel(ModelMixin):
         )
 
         # Face Region Controller
-        self.face_locator = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(16, 32, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(32, 1, kernel_size=1),
-        )
+        self.face_locator = FaceLocator()
 
         # Speed Controller
         self.speed_encoder = SpeedEncoder(config.num_speed_buckets, config.speed_embedding_dim)
@@ -631,7 +626,7 @@ class AudioFeatureModel(nn.Module):
 # Assuming 'input_image' is a torch tensor of shape (B, C, H, W)
 # Get the binary mask output from the model
 # binary_mask = model(input_image)
-
+#  see - train_facelocator.py
 class FaceLocator(nn.Module):
     def __init__(self):
         super(FaceLocator, self).__init__()
@@ -746,12 +741,7 @@ class FaceMaskGenerator:
     import os
 
 
-# Use decord's CPU or GPU context
-# For GPU: decord.gpu(0)
-decord.logging.set_level(decord.logging.ERROR)
-os.environ["OPENCV_LOG_LEVEL"]="FATAL"
-import cv2
-from typing import List, Tuple, Dict, Any
+
 # from torchvision.transforms.functional import to_tensor
 class EmoVideoReader(VideoReader):
 
