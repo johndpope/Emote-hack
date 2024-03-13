@@ -105,20 +105,29 @@ def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cf
         running_loss = 0.0
 
         for batch in data_loader:
-            reference_images = batch['images'].to(device)
-            motion_frames = batch['motion_frames'].to(device) # TODO - this is not going to work right now - it wants a 2x on all the images
-            speed_values = batch['speeds'].to(device)
-            target_frames = torch.cat([reference_images, motion_frames], dim=1).to(device)
+            for i in range(batch['images'].size(0)):  # Iterate over images in the batch
+                # Ensure that we have enough previous frames for the current index
+                start_idx = max(0, i - cfg.training.prev_frames)  # eg. 2 previous frames to consider
+                end_idx = i + 1  # Exclusive end index for slicing
 
-            optimizer.zero_grad()  # Zero the parameter gradients
+                reference_image = batch['images'][i].unsqueeze(0).to(device)
+                prev_motion_frames = [batch['images'][j].unsqueeze(0).to(device) for j in range(start_idx, end_idx)]
 
-            #   def forward(self, reference_image, motion_frames, speed_value):
-            recon_frames, _, _, _, _ = model(reference_images, motion_frames, speed_values)  # Forward pass
-            loss = criterion(recon_frames, target_frames)  # Compute the loss
-            loss.backward()  # Backward pass: compute gradient of the loss with respect to model parameters
-            optimizer.step()  # Perform a single optimization step (parameter update)
+                # Combine previous motion frames into a single tensor
+                motion_frames = torch.cat(prev_motion_frames, dim=1).to(device)
+                speed = batch['speeds'][i].unsqueeze(0).to(device)
 
-            running_loss += loss.item()
+                target_frames = torch.cat([reference_image] + prev_motion_frames, dim=1).to(device)
+
+                optimizer.zero_grad()  # Zero the parameter gradients
+
+                # Forward pass using the current reference image, previous motion frames, and speed
+                recon_frames, _, _, _, _ = model(reference_image, motion_frames, speed)
+                loss = criterion(recon_frames, target_frames)  # Compute the loss
+                loss.backward()  # Backward pass: compute gradient of the loss with respect to model parameters
+                optimizer.step()  # Perform a single optimization step (parameter update)
+
+                running_loss += loss.item()
 
         epoch_loss = running_loss / len(data_loader)
         print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}')
