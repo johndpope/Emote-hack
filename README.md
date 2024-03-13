@@ -39,11 +39,22 @@ you can  also paste in the architecture diagram from pdf into chatgpt / claude a
 
 ## Stage 1: Training the VAE (FramesEncodingVAE) with the Backbone Network and FaceLocator
 
+ORIGINAL PAPER
+The first stage is the image pretraining, where the Backbone Network, the ReferenceNet, and the Face Lo-
+cator are token into training, in this stage, the Backbone takes a single frame as
+input, while ReferenceNet handles a distinct, randomly chosen frame from the
+same video clip. Both the Backbone and the ReferenceNet initialize weights from the original SD. 
+
+
+CLAUDE 3 - OPUS
 In this stage, the focus is on training the Variational Autoencoder (VAE) to encode and decode video frames.
 The VAE consists of the FramesEncodingVAE class, which combines the encoding of reference and motion frames with additional components like ReferenceNet and SpeedEncoder.
 The Backbone Network (Denoising UNet) and FaceLocator are also trained during this stage.
 The goal is to learn a compressed representation of the video frames and reconstruct them accurately.
 The training process involves feeding reference images, motion frames, and speed values to the VAE and minimizing the reconstruction loss.
+
+
+
 ## Stage 2: Training the Temporal Modules and Audio Layers
 In this stage, the temporal modules and audio layers are introduced into the training process.
 The temporal modules are responsible for ensuring smooth transitions and coherence between generated video frames.
