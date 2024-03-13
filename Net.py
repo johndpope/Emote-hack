@@ -13,7 +13,6 @@ from torch.utils.data import Dataset
 from decord import VideoReader
 import decord
 from typing import List
-from HeadRotation import get_head_pose_velocities_at_frame
 from torchvision.transforms import ToTensor
 import numpy as np
 from moviepy.editor import VideoFileClip
@@ -23,7 +22,7 @@ from transformers import Wav2Vec2Processor, Wav2Vec2Model
 import soundfile as sf
 import cv2
 import mediapipe as mp
-import math
+
 from math import cos, sin, pi
 
 # ONLy external file - I think this is wrong 
@@ -674,7 +673,7 @@ class FaceLocator(nn.Module):
 
 
 
-class FaceMaskGenerator:
+class FaceHelper:
     def __init__(self):
         self.mp_face_detection = mp.solutions.face_detection
         self.mp_face_mesh = mp.solutions.face_mesh
@@ -1015,7 +1014,7 @@ class EMODataset(Dataset):
         self.stage = stage
         self.feature_extractor = Wav2VecFeatureExtractor(model_name='facebook/wav2vec2-base-960h', device='cuda')
 
-        self.face_mask_generator = FaceMaskGenerator()
+        self.face_mask_generator = FaceHelper()
         self.pixel_transform = transforms.Compose(
             [
                 transforms.RandomResizedCrop(
@@ -1077,6 +1076,9 @@ class EMODataset(Dataset):
             # Read frames and generate masks
             vid_pil_image_list = []
             mask_tensor_list = []
+            face_locator = FaceHelper()
+        
+            speeds_tensor_list = []
             for frame_idx in range(video_length):
                 # Read frame and convert to PIL Image
                 frame = Image.fromarray(video_reader[frame_idx].numpy())
@@ -1101,10 +1103,28 @@ class EMODataset(Dataset):
                 mask_tensor = transform_to_tensor(mask_pil)
                 mask_tensor_list.append(mask_tensor)
 
+         
+                # Calculate head rotation speeds at the current frame
+                head_rotation_speeds = face_locator.get_head_pose_velocities_at_frame(video_reader, frame_idx, 1)
+
+                # Check if head rotation speeds are successfully calculated
+                if head_rotation_speeds:
+                    speeds_tensor_list.append(head_rotation_speeds)
+                else:
+                    # Provide a default value if no speeds were calculated
+                    #expected_speed_vector_length = 3
+                    #default_speeds = torch.zeros(1, expected_speed_vector_length)  # Shape [1, 3]
+                    default_speeds = (0.0, 0.0, 0.0)  # List containing one tuple with three elements
+                    speeds_tensor_list.append(default_speeds)
+
+            
+            # Convert list of lists to a tensor
+   
             sample = {
                 "video_id": video_id,
                 "images": vid_pil_image_list,
                 "masks": mask_tensor_list,
+                "speeds": speeds
                
             }
 
@@ -1122,42 +1142,10 @@ class EMODataset(Dataset):
 
 
         elif self.stage == 'stage3':
-            
-            
-            # Stage 3: Speed Training
-            video_reader = VideoReader(mp4_path, ctx=self.ctx)
 
-          ``  video_length = len(video_reader)
-            print("video_length:", video_length)
-            print(f"video_id:   https://youtube.com/watch?v={video_id}")
-            # Initialize an empty list to collect head rotation speeds for multiple frames
-            all_head_rotation_speeds = []
-
-            # Define the number of frames to process from each video
-            # For example, process every 10th frame
-            frame_step = 10  
-
-            for frame_idx in range(0, video_length, frame_step):
-                # Calculate head rotation speeds at the current frame
-                head_rotation_speeds = get_head_pose_velocities_at_frame(video_reader, frame_idx, 1)
-
-                # Check if head rotation speeds are successfully calculated
-                if head_rotation_speeds:
-                    all_head_rotation_speeds.append(head_rotation_speeds)
-                else:
-                    # Provide a default value if no speeds were calculated
-                    #expected_speed_vector_length = 3
-                    #default_speeds = torch.zeros(1, expected_speed_vector_length)  # Shape [1, 3]
-                    default_speeds = (0.0, 0.0, 0.0)  # List containing one tuple with three elements
-                    all_head_rotation_speeds.append(default_speeds)
-
-            
-            # Convert list of lists to a tensor
-   
-            sample = {"all_head_rotation_speeds": all_head_rotation_speeds}
         
 
-            return sample
+            return {}
 
 
         return sample
