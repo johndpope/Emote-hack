@@ -7,8 +7,7 @@ import torchvision.transforms as transforms
 from torch.utils.data  import DataLoader
 from omegaconf import OmegaConf
 
-from Net import FaceLocator,EMODataset
-
+from Net import FaceLocator,EMODataset,FramesEncodingVAE
 from typing import List, Dict, Any
 # Other imports as necessary
 import torch.optim as optim
@@ -99,31 +98,29 @@ def collate_fn(batch):
     return {'video_id': batch_video_ids, 'images': batch_images, 'masks': batch_masks}
 
 
-def train_model(model, data_loader, optimizer, criterion, device, num_epochs,cfg):
+def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cfg):
     model.train()  # Set the model to training mode
-    
-    # for param in model.parameters():
-    #     print(param.name, param.requires_grad)
+
     for epoch in range(num_epochs):
         running_loss = 0.0
-        
+
         for batch in data_loader:
-            for i in range(batch['images'].size(0)):  # Iterate over images in the batch
-                image = batch['images'][i].unsqueeze(0).to(device)  # Add batch dimension and move to device
-                mask = batch['masks'][i].unsqueeze(0).to(device)  # Add batch dimension and move to device
+            reference_images = batch['reference_images'].to(device)
+            motion_frames = batch['motion_frames'].to(device)
+            speed_values = batch['speed_values'].to(device)
+            target_frames = torch.cat([reference_images, motion_frames], dim=1).to(device)
 
-                optimizer.zero_grad()  # Zero the parameter gradients
-                output = model(image)  # Forward pass: compute the predicted mask
-                loss = criterion(output, mask)  # Compute the loss
-                loss.backward()  # Backward pass: compute gradient of the loss with respect to model parameters
-                optimizer.step()  # Perform a single optimization step (parameter update)
-                
-                running_loss += loss.item()
- 
+            optimizer.zero_grad()  # Zero the parameter gradients
+            recon_frames, _, _, _, _ = model(reference_images, motion_frames, speed_values)  # Forward pass
+            loss = criterion(recon_frames, target_frames)  # Compute the loss
+            loss.backward()  # Backward pass: compute gradient of the loss with respect to model parameters
+            optimizer.step()  # Perform a single optimization step (parameter update)
 
-                epoch_loss = running_loss / len(data_loader)
-            print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}')
-    
+            running_loss += loss.item()
+
+        epoch_loss = running_loss / len(data_loader)
+        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}')
+
     return model
 
 
@@ -164,16 +161,18 @@ def main(cfg: OmegaConf) -> None:
 
     # Model, Criterion, Optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = FaceLocator().to(device)
-    criterion = nn.BCEWithLogitsLoss()  # Use BCEWithLogitsLoss when output is without sigmoid
+    model = FramesEncodingVAE(input_channels=3, latent_dim=256, img_size=cfg.data.train_height, reference_net=None).to(device)
+    criterion = nn.MSELoss()  # Use MSE loss for VAE reconstruction
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
 
     # Train the model
     trained_model = train_model(model, data_loader, optimizer, criterion, device, num_epochs,cfg)
 
+
     # Save the model
-    torch.save(trained_model.state_dict(), 'face_locator_model.pth')
-    print("Model saved to face_locator_model.pth")
+    torch.save(trained_model.state_dict(), 'frames_encoding_vae_model.pth')
+    print("Model saved to frames_encoding_vae_model.pth")
 
 
 if __name__ == "__main__":

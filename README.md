@@ -32,3 +32,9 @@ decord + ubuntu cuda12 / 3090 support (for gpu acceleration in video reading)
 https://github.com/johndpope/decord-cuda12
 
 because all the videos are not the same size - they need reshapping - so abandoning gpu optimization for now.
+
+
+
+UPDATE
+code is collapsed into Net.py to aid in copy and paste into LLM.
+you can paste in the diagram into chatgpt / claude and it to fix stuff.
