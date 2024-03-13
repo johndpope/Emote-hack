@@ -131,7 +131,7 @@ class FaceMaskGenerator:
         frame_np = np.array(frame_image.convert('RGB'))  # Ensure the image is in RGB
         return self.generate_face_region_mask_np_image(video_id,frame_idx,frame_np)
 
-    def generate_face_region_mask_np_image(self,frame_np, video_id=0,frame_idx=0, padding=30):
+    def generate_face_region_mask_np_image(self,frame_np, video_id=0,frame_idx=0, padding=10):
         # Convert from RGB to BGR for MediaPipe processing
         frame_bgr = cv2.cvtColor(frame_np, cv2.COLOR_RGB2BGR)
         height, width, _ = frame_bgr.shape
@@ -172,9 +172,9 @@ class FaceMaskGenerator:
                 mask[pad_ymin:pad_ymax, pad_xmin:pad_xmax] = 255
 
                
-                cv2.rectangle(debug_image, (pad_xmin, pad_ymin), 
-                              (pad_xmax, pad_ymax), (255, 255, 255), thickness=-1)
-                cv2.imwrite(f'./temp/debug_face_mask_{video_id}-{frame_idx}.png', debug_image)
+                # cv2.rectangle(debug_image, (pad_xmin, pad_ymin), 
+                            #   (pad_xmax, pad_ymax), (255, 255, 255), thickness=-1)
+                # cv2.imwrite(f'./temp/debug_face_mask_{video_id}-{frame_idx}.png', debug_image)
 
         return mask
 
