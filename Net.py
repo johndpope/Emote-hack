@@ -354,7 +354,7 @@ class ReferenceAttentionLayer(nn.Module):
 
 
 class BackboneNetwork(nn.Module):
-      """
+    """
     The BackboneNetwork integrates multiple components crucial for generating expressive
     portrait videos from audio input. It inherits the U-Net structure from Stable Diffusion,
     but modifies the attention mechanisms to incorporate reference and audio features for
