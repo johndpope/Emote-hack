@@ -238,11 +238,3 @@ def get_head_pose_velocities_at_frame(video_reader:VideoReader, frame_index, n_p
         head_velocities.append((roll_diff, pitch_diff, yaw_diff))
 
     return head_velocities
-# # Usage example
-image_path = 'frame_0003.jpg'  # Replace with your image path
-# head_pose = get_head_pose(image_path)
-# if head_pose:
-#     roll, pitch, yaw = head_pose
-#     print(f'Roll: {roll}, Pitch: {pitch}, Yaw: {yaw}')
-# else:
-#     print('No face detected or the face landmarks are not sufficient for pose estimation.')

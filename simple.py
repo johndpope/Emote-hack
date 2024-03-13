@@ -8,7 +8,7 @@ from diffusers import AutoencoderKL, DDIMScheduler
 from transformers import CLIPVisionModelWithProjection
 from omegaconf import OmegaConf
 import numpy as np
-from EMOModel import EMOModel
+from Net import EMOModel
 from EMOAnimationPipeline import EMOAnimationPipeline
 
 
