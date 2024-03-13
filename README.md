@@ -37,6 +37,31 @@ to aid in copy and paste into LLM.
 you can  also paste in the architecture diagram from pdf into chatgpt / claude and it to fix stuff.
 
 
+## Stage 1: Training the VAE (FramesEncodingVAE) with the Backbone Network and FaceLocator
+
+In this stage, the focus is on training the Variational Autoencoder (VAE) to encode and decode video frames.
+The VAE consists of the FramesEncodingVAE class, which combines the encoding of reference and motion frames with additional components like ReferenceNet and SpeedEncoder.
+The Backbone Network (Denoising UNet) and FaceLocator are also trained during this stage.
+The goal is to learn a compressed representation of the video frames and reconstruct them accurately.
+The training process involves feeding reference images, motion frames, and speed values to the VAE and minimizing the reconstruction loss.
+## Stage 2: Training the Temporal Modules and Audio Layers
+In this stage, the temporal modules and audio layers are introduced into the training process.
+The temporal modules are responsible for ensuring smooth transitions and coherence between generated video frames.
+The audio layers integrate audio features into the generation process, allowing the model to synchronize the character's movements and expressions with the audio.
+During this stage, the model learns to generate video frames that are temporally consistent and aligned with the audio input.
+The training data includes video frames, audio features, and corresponding ground truth frames.
+
+## Stage 3: Training the Speed Layers
+
+The final stage focuses on training the speed layers of the model.
+The speed layers control the speed and stability of the generated character's motion across video clips.
+By training the speed layers, the model learns to generate videos with consistent and controllable character motion.
+The training data in this stage includes video frames, audio features, and speed embeddings.
+The model is trained to generate video frames that (match the specified speed ?? - this is WRONG - it should just do automatically) and maintain coherence across different clips.
+
+
+It's important to note that the training stages are progressive, meaning that each stage builds upon the previous one. The weights and learned representations from the previous stages are often used as initializations for the subsequent stages.
+
 
 
 ```
