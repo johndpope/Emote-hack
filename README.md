@@ -13,14 +13,17 @@ https://chat.openai.com/g/g-UzGVIbBpB-diffuser-wizard
 https://arxiv.org/html/2402.17485v1
 
 
-The Moore-AnimateAnyone seems very  - it was ripped off from magicanimate
+The Moore-AnimateAnyone seems very close to this implementation - it was ripped off from magicanimate
 it has training code train_stage_1.py
 https://github.com/MooreThreads/Moore-AnimateAnyone/blob/master/train_stage_1.py
 
 
 
-✅  Training data 
+✅  Training data 36,000 videos / facial videos - 40gb
 https://academictorrents.com/details/843b5adb0358124d388c4e9836
+in train_facelocator.py - I'm successfully using decord to extract frames / compute the masks.
+in train_stage_1.py(wip) this is factoring in heads speeds /velocities using mediapipe 
+
 
 
 ## Custom chatgpt (using diffusers models / pipelines)
@@ -32,6 +35,8 @@ https://chat.openai.com/g/g-UzGVIbBpB-diffuser-wizard
 rather than splitting up classes- I've collapsed into a single Net.py file 
 to aid in copy and paste into LLM. 
 you can  also paste in the architecture diagram from pdf into chatgpt / claude and it to fix stuff.
+
+
 
 
 ```
