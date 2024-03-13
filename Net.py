@@ -1088,8 +1088,8 @@ class EMODataset(Dataset):
                 pixel_values_frame = self.augmentation(frame, self.pixel_transform, state)
                 vid_pil_image_list.append(pixel_values_frame)
 
-                # Calculate head rotation speeds at the current frame
-                head_rotation_speeds = face_locator.get_head_pose_velocities_at_frame(video_reader, frame_idx, 1)
+                # Calculate head rotation speeds at the current frame (previous 1 frames)
+                head_rotation_speeds = face_locator.get_head_pose_velocities_at_frame(video_reader, frame_idx,1)
 
                 # Check if head rotation speeds are successfully calculated
                 if head_rotation_speeds:

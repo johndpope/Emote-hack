@@ -13,22 +13,23 @@ from typing import List, Dict, Any
 import torch.optim as optim
 
 
+
 # works but complicated 
 def gpu_padded_collate(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
 
     assert isinstance(batch, list), "Batch should be a list"
 
-    # Unpack and flatten the images and masks from the batch
+    # Unpack and flatten the images and speeds from the batch
     all_images = []
-    all_masks = []
+    all_speeds = []
     for item in batch:
         # Assuming each 'images' field is a list of tensors for a single video
         all_images.extend(item['images'])  # Flatten the list of lists into a single list
-        all_masks.extend(item['masks'])  # Flatten the list of lists into a single list
+        all_speeds.extend(item['speeds'])  # Flatten the list of lists into a single list
 
 
     assert all(isinstance(img, torch.Tensor) for img in all_images), "All images must be PyTorch tensors"
-    assert all(isinstance(mask, torch.Tensor) for mask in all_masks), "All masks must be PyTorch tensors"
+    assert all(isinstance(mask, torch.Tensor) for mask in all_speeds), "All speeds must be PyTorch tensors"
 
 
     # Determine the maximum dimensions
@@ -36,66 +37,22 @@ def gpu_padded_collate(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     max_height = max(img.shape[1] for img in all_images)
     max_width = max(img.shape[2] for img in all_images)
 
-    # Pad the images and masks
+    # Pad the images and speeds
     padded_images = [F.pad(img, (0, max_width - img.shape[2], 0, max_height - img.shape[1])) for img in all_images]
-    padded_masks = [F.pad(mask, (0, max_width - mask.shape[2], 0, max_height - mask.shape[1])) for mask in all_masks]
+    padded_speeds = [F.pad(mask, (0, max_width - mask.shape[2], 0, max_height - mask.shape[1])) for mask in all_speeds]
 
 
-    # Stack the padded images and masks
+    # Stack the padded images and speeds
     images_tensor = torch.stack(padded_images)
-    masks_tensor = torch.stack(padded_masks)
+    speeds_tensor = torch.stack(padded_speeds)
 
     # Assert the correct shape of the output tensors
     assert images_tensor.ndim == 4, "Images tensor should be 4D"
-    assert masks_tensor.ndim == 4, "Masks tensor should be 4D"
+    assert speeds_tensor.ndim == 4, "speeds tensor should be 4D"
     
-    return {'images': images_tensor, 'masks': masks_tensor}
+    return {'images': images_tensor, 'speeds': speeds_tensor}
 
 
-
-
-def collate_fn(batch):
-    # Define the maximum number of frames you want to consider per video
-    max_frames_per_video = 100
-    
-    # Initialize lists to hold the processed images and masks
-    batch_images = []
-    batch_masks = []
-    batch_video_ids = []
-    
-    # Process each item in the batch
-    for item in batch:
-        video_id = item['video_id']
-        images = item['images']
-        masks = item['masks']
-        
-        # Trim or pad the images and masks to have a uniform number of frames
-        num_frames = len(images)
-        
-        if num_frames > max_frames_per_video:
-            # Select the first 'max_frames_per_video' frames
-            images = images[:max_frames_per_video]
-            masks = masks[:max_frames_per_video]
-        elif num_frames < max_frames_per_video:
-            # Pad the sequences with zeros if they have less than 'max_frames_per_video' frames
-            images.extend([torch.zeros_like(images[0])] * (max_frames_per_video - num_frames))
-            masks.extend([torch.zeros_like(masks[0])] * (max_frames_per_video - num_frames))
-        
-        # Stack the images and masks along a new dimension
-        images = torch.stack(images, dim=0)
-        masks = torch.stack(masks, dim=0)
-        
-        # Append the processed tensors to the batch lists
-        batch_images.append(images)
-        batch_masks.append(masks)
-        batch_video_ids.append(video_id)
-    
-    # Combine the lists of tensors into single tensors
-    batch_images = torch.stack(batch_images, dim=0)
-    batch_masks = torch.stack(batch_masks, dim=0)
-    
-    # Return the batched data as a dictionary
-    return {'video_id': batch_video_ids, 'images': batch_images, 'masks': batch_masks}
 
 
 def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cfg):
