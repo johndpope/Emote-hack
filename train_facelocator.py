@@ -13,7 +13,8 @@ from FaceLocator import FaceLocator,FaceMaskGenerator
 import numpy as np
 from torchvision.transforms.functional import pad
 from typing import List, Dict, Any
-
+# Other imports as necessary
+import torch.optim as optim
 
 
 # works but complicated 
@@ -100,64 +101,38 @@ def collate_fn(batch):
     # Return the batched data as a dictionary
     return {'video_id': batch_video_ids, 'images': batch_images, 'masks': batch_masks}
 
-def train_model(model: nn.Module, data_loader: DataLoader, face_mask_generator: FaceMaskGenerator,
-                optimizer: torch.optim.Optimizer, criterion: nn.Module, device: torch.device, num_epochs: int,cfg:OmegaConf) -> nn.Module:
-   
 
-    model.train()
+def train_model(model, data_loader, optimizer, criterion, device, num_epochs,cfg):
+    model.train()  # Set the model to training mode
+    
+    # for param in model.parameters():
+    #     print(param.name, param.requires_grad)
+    for epoch in range(num_epochs):
+        running_loss = 0.0
+        
+        for batch in data_loader:
+            for i in range(batch['images'].size(0)):  # Iterate over images in the batch
+                image = batch['images'][i].unsqueeze(0).to(device)  # Add batch dimension and move to device
+                mask = batch['masks'][i].unsqueeze(0).to(device)  # Add batch dimension and move to device
 
-    for epoch in range(0, num_epochs):
-            epoch_loss = 0.0
-            for step, batch in enumerate(data_loader):
-                print("batch:",batch)
+                optimizer.zero_grad()  # Zero the parameter gradients
+                output = model(image)  # Forward pass: compute the predicted mask
+                loss = criterion(output, mask)  # Compute the loss
+                loss.backward()  # Backward pass: compute gradient of the loss with respect to model parameters
+                optimizer.step()  # Perform a single optimization step (parameter update)
+                
+                running_loss += loss.item()
+ 
 
-                all_frame_images = batch["images"]
-
-                for images in all_frame_images:
-
-                    images = images.to(device)
-                 
-
-                    # Generate face masks for each image in the batch
-                    face_masks = []
-                    for img in images.cpu():
-                       # Convert the tensor to a numpy array and transpose it to HWC format
-                        img = img.numpy().transpose(1, 2, 0)
-                        # Ensure the image is in uint8 format
-                        img = (img * 255).astype(np.uint8)
-
-                        mask = face_mask_generator.generate_mask(img)
-                        face_masks.append(mask)
-
-                    # Convert list of masks to a tensor
-                    face_masks_tensor = torch.stack(face_masks).to(device)
-
-                    # Forward pass: compute the output of the model using images and masks
-                    outputs = model(images, face_masks_tensor)
-
-                    # Ensure the mask is the same shape as the model's output
-                    face_masks_tensor = F.interpolate(face_masks_tensor.unsqueeze(1), size=outputs.shape[2:], mode='nearest').squeeze(1)
-                    assert outputs.shape == face_masks_tensor.shape, "Output and face masks tensor must have the same shape"
-
-                    # Compute the loss
-                    loss = criterion(outputs, face_masks_tensor)
-                    epoch_loss += loss.item()
-
-                    # Backward pass and optimize
-                    loss.backward()
-                    optimizer.step()
-
-                    epoch_loss /= len(data_loader)
-                    print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}")
-
+                epoch_loss = running_loss / len(data_loader)
+            print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}')
+    
     return model
-
-
 
 
 # BACKBONE ~ MagicAnimate class
 def main(cfg: OmegaConf) -> None:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
     transform = transforms.Compose([
         transforms.Resize((cfg.data.train_height, cfg.data.train_width)),
@@ -179,21 +154,29 @@ def main(cfg: OmegaConf) -> None:
         transform=transform
     )
 
-    data_loader = DataLoader(dataset, batch_size=cfg.training.batch_size, shuffle=True, num_workers=cfg.training.num_workers,collate_fn=gpu_padded_collate)
 
+
+    # Configuration and Hyperparameters
+    num_epochs = 10  # Example number of epochs
+    learning_rate = 1e-3  # Example learning rate
+
+    # Initialize Dataset and DataLoader
+    # Assuming EMODataset is properly defined and initialized as `dataset`
+    data_loader = DataLoader(dataset, batch_size=cfg.training.batch_size, shuffle=True, num_workers=cfg.training.num_workers, collate_fn=gpu_padded_collate)
+
+    # Model, Criterion, Optimizer
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = FaceLocator().to(device)
-    face_mask_generator = FaceMaskGenerator()
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.training.learning_rate)
-    criterion = nn.BCEWithLogitsLoss()
+    criterion = nn.BCEWithLogitsLoss()  # Use BCEWithLogitsLoss when output is without sigmoid
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-    num_epochs = cfg.training.num_epochs
+    # Train the model
+    trained_model = train_model(model, data_loader, optimizer, criterion, device, num_epochs,cfg)
 
-    trained_model = train_model(model, data_loader, face_mask_generator, optimizer, criterion, device, num_epochs,cfg)
+    # Save the model
+    torch.save(trained_model.state_dict(), 'face_locator_model.pth')
+    print("Model saved to face_locator_model.pth")
 
-    # Save the trained model
-    save_path = os.path.join(cfg.model_save_dir, 'face_locator.pth')
-    torch.save(trained_model.state_dict(), save_path)
-    print(f"Trained model saved at: {save_path}")
 
 if __name__ == "__main__":
     config = OmegaConf.load("./configs/training/stage1.yaml")

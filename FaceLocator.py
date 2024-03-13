@@ -10,36 +10,53 @@ from PIL import Image
 
 os.environ["OPENCV_LOG_LEVEL"]="FATAL"
 
+# given an image - spit out the mask
+
+# Instantiate the model
+# model = FaceLocator()
+
+# Assuming 'input_image' is a torch tensor of shape (B, C, H, W)
+# Get the binary mask output from the model
+# binary_mask = model(input_image)
+
 class FaceLocator(nn.Module):
     def __init__(self):
         super(FaceLocator, self).__init__()
-        # Define lightweight convolutional layers to encode the bounding box
-        # Assuming input images are (C, H, W) = (3, 256, 256) for example
+        # Define convolutional layers
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1)
         self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1)
         self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
+        # Define the final convolutional layer that outputs a single channel (mask)
+        self.final_conv = nn.Conv2d(64, 1, kernel_size=1)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
 
     def forward(self, images):
-        # images shape is (B, C, H, W)
-        B, C, H, W = images.shape
-        # Example forward pass through the lightweight convolutional layers
+        # Forward pass through the convolutional layers
+        # Assert that images are of the correct type (floating-point)
+        assert images.dtype == torch.float32, 'Images must be of type torch.float32'
+        # Assert that images have 4 dimensions [B, C, H, W]
+        assert images.ndim == 4, 'Images must have 4 dimensions [B, C, H, W]'
+
         x = F.relu(self.conv1(images))
         x = self.pool(x)
         x = F.relu(self.conv2(x))
         x = self.pool(x)
         x = F.relu(self.conv3(x))
-        x = self.pool(x)  # Final shape (B, 64, H/8, W/8)
+        x = self.pool(x)  # Shape after pooling: (B, 64, H/8, W/8)
         
-        # We assume the final layer's output is an encoded representation 
-        # of the facial bounding box which we can transform into a mask.
-        # Generate a mask from the output - this can be a learned transformation
-        # or a fixed operation depending on the model's design.
-        # For the sake of example, we'll threshold the activations to create a mask.
-        masks = x > x.mean(dim=[2, 3], keepdim=True)  # Simple thresholding for mask
-        masks = F.interpolate(masks.float(), size=(H, W), mode='nearest')  # Upscale to original size
+
+        assert x.size(1) == 64, f"Input to final conv layer has {x.size(1)} channels, expected 64."
+
+        # Pass through the final convolutional layer to get a single channel output
+        logits = self.final_conv(x)  # Output logits directly, Shape: (B, 1, H/8, W/8)
         
-        return masks
+        # No sigmoid or thresholding here because BCEWithLogitsLoss will handle it
+
+        # Upsample logits to the size of the original image
+        logits_upsampled = F.interpolate(logits, size=(images.shape[2], images.shape[3]), mode='bilinear', align_corners=False)
+        
+        return logits_upsampled
+
 
 
 #  bbox for face
@@ -166,3 +183,5 @@ class FaceMaskGenerator:
         # Convert from PIL Image to NumPy array in BGR format
         frame_np = np.array(frame_image.convert('RGB'))  # Ensure the image is in RGB
         return self.generate_face_region_mask_np_image(frame_np,video_id,frame_idx,)
+    
+    
