@@ -364,6 +364,71 @@ class AudioAttentionLayers(nn.Module):
 
 
 
+class ReferenceAttentionLayer(nn.Module):
+    def __init__(self, feature_dim):
+        super(ReferenceAttentionLayer, self).__init__()
+        # Initialize layers for query, key, and value
+        self.query = nn.Linear(feature_dim, feature_dim)
+        self.key = nn.Linear(feature_dim, feature_dim)
+        self.value = nn.Linear(feature_dim, feature_dim)
+        # Scale factor for the attention (as in "Attention is All You Need" paper)
+        self.scale = torch.sqrt(torch.FloatTensor([feature_dim]))
+
+    def forward(self, latent_code, reference_features):
+        # Ensure latent_code and reference_features are in compatible shapes
+        # latent_code: (batch, feature_dim, seq_len)
+        # reference_features: (batch, feature_dim, 1)
+        # Note: seq_len for latent_code would typically be 1 for image generation, 
+        # and reference_features should be unsqueezed to add the sequence length dimension
+
+        # Generate query, key, value vectors
+        query = self.query(latent_code)
+        key = self.key(reference_features)
+        value = self.value(reference_features)
+
+        # Compute the attention scores using scaled dot-product attention
+        attention_scores = torch.matmul(query, key.transpose(-2, -1)) / self.scale
+
+        # Apply softmax to get probabilities
+        attention_probs = F.softmax(attention_scores, dim=-1)
+
+        # Apply the attention to the values
+        attention_output = torch.matmul(attention_probs, value)
+
+        # Add the input and the attention output (residual connection)
+        return latent_code + attention_output
+
+
+class BackboneNetwork(nn.Module):
+    def __init__(self, feature_dim, num_layers, reference_net, audio_attention_layers, temporal_module):
+        super(BackboneNetwork, self).__init__()
+        # Existing network architecture components go here...
+        self.feature_dim = feature_dim
+        self.reference_net = reference_net
+        self.audio_attention_layers = audio_attention_layers
+        self.temporal_module = temporal_module
+        self.num_layers = num_layers
+        # Initialize layers for Reference Attention, Audio Attention and Temporal Modules
+        self.reference_attention_layers = nn.ModuleList([ReferenceAttentionLayer(feature_dim) for _ in range(num_layers)])
+        # ... Other components of the BackboneNetwork
+
+    def forward(self, latent_code, audio_features, ref_image):
+        # Extract reference features from the reference image
+        reference_features = self.reference_net(ref_image)
+
+        # Apply reference attention
+        for layer in self.reference_attention_layers:
+            latent_code = layer(latent_code, reference_features) + latent_code  # Adding skip-connection
+
+        # Apply audio-attention layers after each reference-attention layer
+        latent_code = self.audio_attention_layers(latent_code, audio_features)
+
+        # Apply temporal modules
+        latent_code = self.temporal_module(latent_code)
+
+        # ... The rest of the forward pass
+        return latent_code
+    
 class EMOModel(ModelMixin):
     def __init__(self, vae, image_encoder, config):
         super().__init__()
@@ -373,13 +438,15 @@ class EMOModel(ModelMixin):
         # Reference UNet (ReferenceNet)
         self.reference_unet = UNet2DConditionModel(**config.reference_unet_config)
 
-
         # Integrate Wav2Vec Feature Extractor
         self.wav2vec_feature_extractor = Wav2VecFeatureExtractor(pretrained_model_name="wav2vec_model_name")
 
         # Denoising UNet (Backbone Network)
         # Ensure it integrates ReferenceNet and audio features
-        self.denoising_unet = UNet3DConditionModel(
+        self.denoising_unet = BackboneNetwork(
+            reference_net=self.reference_unet,
+            audio_feature_dim=config["audio_feature_dim"],
+            audio_num_layers=config["audio_num_layers"],
             sample_size=config.denoising_unet_config.get("sample_size"),
             in_channels=config.denoising_unet_config.get("in_channels"),
             out_channels=config.denoising_unet_config.get("out_channels"),
@@ -400,68 +467,47 @@ class EMOModel(ModelMixin):
         # Speed Controller
         self.speed_encoder = SpeedEncoder(config.num_speed_buckets, config.speed_embedding_dim)
 
-        config = {
-            "audio_feature_dim": 768,
-            "audio_num_layers": 3
-        }
-        # Audio Attention Layers
-        self.audio_attention_layers = AudioAttentionLayers(feature_dim=config["audio_feature_dim"], num_layers=config["audio_num_layers"])
-
 
     def forward(self, noisy_latents, timesteps, ref_image, motion_frames, audio_features, head_rotation_speeds):
-            batch_size, num_frames, _, height, width = noisy_latents.shape
+        batch_size, num_frames, _, height, width = noisy_latents.shape
 
+        # Encode reference image
+        ref_image_latents = self.vae.encode(ref_image).latent_dist.sample()
+        ref_image_latents = ref_image_latents * 0.18215
+        ref_image_embeds = self.image_encoder(ref_image)
 
+        # Encode motion frames
+        motion_frames_latents = self.vae.encode(motion_frames).latent_dist.sample()
+        motion_frames_latents = motion_frames_latents * 0.18215
+        motion_frames_embeds = self.image_encoder(motion_frames)
 
-            # Encode reference image
-            ref_image_latents = self.vae.encode(ref_image).latent_dist.sample()
-            ref_image_latents = ref_image_latents * 0.18215
-            ref_image_embeds = self.image_encoder(ref_image)
+        # Process audio input through Wav2Vec feature extractor
+        # Get audio embeddings from the extracted features
+        audio_embeds = self.wav2vec_feature_extractor(audio_features)
 
-            # Encode motion frames
-            motion_frames_latents = self.vae.encode(motion_frames).latent_dist.sample()
-            motion_frames_latents = motion_frames_latents * 0.18215
-            motion_frames_embeds = self.image_encoder(motion_frames)
+        # Compute face region mask
+        face_region_mask = self.face_locator(ref_image)
+        face_region_mask = face_region_mask.unsqueeze(1).repeat(1, num_frames, 1, 1, 1)
 
-            # Process audio input through Wav2Vec feature extractor
-            # Get audio embeddings from the extracted features
-            audio_embeds = self.wav2vec_feature_extractor(audio_features)
+        # Forward pass through Reference UNet
+        ref_embeds = self.reference_unet(ref_image_latents, timesteps, ref_image_embeds).sample
 
+        # Get speed embeddings from the head rotation speeds
+        speed_embeddings = self.speed_encoder(head_rotation_speeds)
 
+        # Forward pass through Denoising UNet (Backbone Network)
+        # The modified latent code is now used in the forward pass of the Denoising UNet
+        model_pred = self.denoising_unet(
+            latent_code=noisy_latents,
+            timesteps=timesteps,
+            reference_features=ref_embeds,
+            audio_features=audio_embeds,
+            motion_fea=motion_frames_embeds,
+            speed_fea=speed_embeddings,
+            pose_cond_fea=face_region_mask,
+        ).sample
 
-            # Compute face region mask
-            face_region_mask = self.face_locator(ref_image)
-            face_region_mask = face_region_mask.unsqueeze(1).repeat(1, num_frames, 1, 1, 1)
-
-            # Forward pass through Reference UNet
-            ref_embeds = self.reference_unet(ref_image_latents, timesteps, ref_image_embeds).sample
-
-            # Get speed embeddings from the head rotation speeds
-            speed_embeddings = self.speed_encoder(head_rotation_speeds)
-
-
-
-            # Apply audio attention layers
-            # NOTE: You might need to modify the denoising_unet to return intermediate latent code 
-            #       before final output for this step.
-            intermediate_latent_code = self.denoising_unet.get_intermediate_latent_code(noisy_latents, timesteps)
-            latent_code_with_audio = self.audio_attention_layers(intermediate_latent_code, audio_embeds)
-
-
-            # Forward pass through Denoising UNet (Backbone Network)
-            # Incorporate the latent_code_with_audio into the denoising process
-            # The modified latent code is now used in the forward pass of the Denoising UNet
-            model_pred = self.denoising_unet(
-                sample=latent_code_with_audio,  # Using latent code modified by audio attention
-                timestep=timesteps,
-                encoder_hidden_states=ref_embeds,
-                motion_fea=motion_frames_embeds,
-                audio_fea=audio_embeds,  # original audio features can still be used in parallel if needed
-                speed_fea=speed_embeddings,
-                pose_cond_fea=face_region_mask,
-            ).sample
-
-            return model_pred
+        return model_pred
         
 
 
@@ -963,6 +1009,7 @@ class FaceHelper:
 
 
 
+
 # from torchvision.transforms.functional import to_tensor
 class EmoVideoReader(VideoReader):
 
@@ -1157,3 +1204,5 @@ class EMODataset(Dataset):
 
 
         return sample
+
+
