@@ -35,56 +35,6 @@ os.environ["OPENCV_LOG_LEVEL"]="FATAL"
 
 
 # JAM EVERYTHING INTO 1 CLASS - so Claude 3 / Chatgpt can analyze at once
-class Encoder(nn.Module):
-    """
-    Encoder encodes both reference and motion frames using a shared VAE encoder structure. 
-    This simulates the behavior depicted in the Frames Encoding section of the diagram, 
-    which indicates that reference and motion frames are passed through the same encoder.
-    """
-    def __init__(self, input_channels, latent_dim, img_size):
-        super(Encoder, self).__init__()
-        # Define the layers for the encoder according to the VAE structure.
-        self.encoder_layers = nn.Sequential(
-            nn.Conv2d(input_channels, 32, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.Flatten(),
-            nn.Linear(256 * (img_size // 16) * (img_size // 16), latent_dim * 2),
-        )
-    
-    def forward(self, x):
-        # Pass input through encoder layers to get the latent space representation
-        latent = self.encoder_layers(x)
-        # Split the result into mu and logvar components of the latent space
-        mu, logvar = torch.chunk(latent, 2, dim=-1)
-        return mu, logvar
-
-
-class Decoder(nn.Module):
-    def __init__(self, latent_dim, output_channels,img_size):
-        super(Decoder, self).__init__()
-        self.img_size = img_size
-        # The output size of the last deconvolution would be [output_channels, img_size, img_size]
-        self.fc = nn.Linear(latent_dim, 256 * (img_size // 16) * (img_size // 16))
-        self.deconv1 = nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1)
-        self.deconv2 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)
-        self.deconv3 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1)
-        self.deconv4 = nn.ConvTranspose2d(32, output_channels, kernel_size=4, stride=2, padding=1)
-
-    def forward(self, z):
-        z = self.fc(z)
-        z = z.view(z.size(0), 256, self.img_size // 16, self.img_size // 16)  # Reshape z to (batch_size, 256, img_size/16, img_size/16)
-        z = F.relu(self.deconv1(z))
-        z = F.relu(self.deconv2(z))
-        z = F.relu(self.deconv3(z))
-        reconstruction = torch.sigmoid(self.deconv4(z))  # Use sigmoid for normalizing the output to [0, 1]
-        return reconstruction
-
 
 
 
@@ -363,7 +313,11 @@ class AudioAttentionLayers(nn.Module):
         return latent_code
 
 
-
+# ReferenceAttentionLayer: This layer introduces a cross-attention mechanism that
+# applies attention between the latent features of the video frames and the reference
+# features extracted from the reference image. The intention is to influence the
+# generated frames to retain the identity and style present in the reference image,
+# as emphasized in the EMO whitepaper.
 class ReferenceAttentionLayer(nn.Module):
     def __init__(self, feature_dim):
         super(ReferenceAttentionLayer, self).__init__()
@@ -400,6 +354,15 @@ class ReferenceAttentionLayer(nn.Module):
 
 
 class BackboneNetwork(nn.Module):
+      """
+    The BackboneNetwork integrates multiple components crucial for generating expressive
+    portrait videos from audio input. It inherits the U-Net structure from Stable Diffusion,
+    but modifies the attention mechanisms to incorporate reference and audio features for
+    controlling the identity preservation and motion synchronization in the video generation
+    process. It ensures seamless frame transitions and consistent identity throughout the
+    video by applying reference-attention layers and managing temporal consistency with
+    temporal modules.
+    """
     def __init__(self, feature_dim, num_layers, reference_net, audio_attention_layers, temporal_module):
         super(BackboneNetwork, self).__init__()
         # Existing network architecture components go here...
