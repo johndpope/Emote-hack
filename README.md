@@ -13,8 +13,8 @@ https://chat.openai.com/g/g-UzGVIbBpB-diffuser-wizard
 https://arxiv.org/html/2402.17485v1
 
 
-The Moore-AnimateAnyone seems very close to this implementation - it was ripped off from magicanimate
-it has training code train_stage_1.py
+The Moore-AnimateAnyone seems very close to this implementation - it was ripped off from magicanimate 
+(which cherry picked from animatediff) it has training code train_stage_1.py
 https://github.com/MooreThreads/Moore-AnimateAnyone/blob/master/train_stage_1.py
 
 
