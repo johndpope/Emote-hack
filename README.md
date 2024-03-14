@@ -26,20 +26,26 @@ https://academictorrents.com/details/843b5adb0358124d388c4e9836654c246b988ff4
 magnet:?xt=urn:btih:843b5adb0358124d388c4e9836654c246b988ff4&dn=CelebV-HQ&tr=https%3A%2F%2Facademictorrents.com%2Fannounce.php&tr=https%3A%2F%2Fipv6.academictorrents.com%2Fannounce.php
 ```
 
-in train_facelocator.py - I'm successfully using decord to extract frames / compute the masks.
-in train_stage_1.py(wip) this is factoring in heads speeds /velocities using mediapipe 
 
 
 
-## Custom chatgpt (using diffusers models / pipelines)
-https://chat.openai.com/g/g-UzGVIbBpB-diffuser-wizard
+
 
 
 
 ## UPDATE
-rather than splitting up classes- I've collapsed into a single Net.py file 
-to aid in copy and paste into LLM. 
-you can  also paste in the architecture diagram from pdf into chatgpt / claude and it to fix stuff.
+rather than splitting up classes- I've collapsed into a single Net.py file to aid in copy and paste into LLM. 
+you can  also paste in the architecture diagram from pdf into chatgpt / claude and ask it to fix stuff.
+
+
+
+
+
+## Chat here about specific components (everyone has read/write access) - understandably there's flaws in this code - together we can fix.
+https://docs.google.com/spreadsheets/d/1meRHgcFZ8mxWplvJweAd-5P_tkH0UeD2eT2Ot_k46jA/edit#gid=865829673
+
+
+
 
 
 ## Stage 1: Training the VAE (FramesEncodingVAE) with the Backbone Network and FaceLocator
@@ -80,16 +86,12 @@ It's important to note that the training stages are progressive, meaning that ea
 
 
 
-```
-- Encoder
-  - __init__(input_channels, latent_dim, img_size)
-  - forward(x)
 
-- Decoder
-  - __init__(latent_dim, output_channels, img_size)
-  - forward(z)
+https://github.com/johndpope/Emote-hack/blob/main/Net.py
 
-- FramesEncodingVAE
+```javascript
+
+-✅ FramesEncodingVAE
   - __init__(input_channels, latent_dim, img_size, reference_net)
   - reparameterize(mu, logvar)
   - forward(reference_image, motion_frames, speed_value)
@@ -103,11 +105,11 @@ It's important to note that the training stages are progressive, meaning that ea
   - __init__(in_channels, out_channels)
   - forward(x1, x2)
 
-- ReferenceNet
+- ✅ ReferenceNet
   - __init__(vae_model, speed_encoder, config)
   - forward(reference_image, motion_frames, head_rotation_speed)
 
-- SpeedEncoder
+- ✅ SpeedEncoder
   - __init__(num_speed_buckets, speed_embedding_dim)
   - get_bucket_centers()
   - get_bucket_radii()
@@ -122,11 +124,11 @@ It's important to note that the training stages are progressive, meaning that ea
   - __init__(feature_dim, num_layers)
   - forward(latent_code, audio_features)
 
-- EMOModel
+-✅ EMOModel
   - __init__(vae, image_encoder, config)
   - forward(noisy_latents, timesteps, ref_image, motion_frames, audio_features, head_rotation_speeds)
 
-- Wav2VecFeatureExtractor
+-✅ Wav2VecFeatureExtractor
   - __init__(model_name, device)
   - extract_features_from_mp4(video_path, m, n)
   - extract_features_for_frame(video_path, frame_index, m)
@@ -135,11 +137,11 @@ It's important to note that the training stages are progressive, meaning that ea
   - __init__(input_size, output_size)
   - forward(x)
 
-- FaceLocator
+-✅ FaceLocator
   - __init__()
   - forward(images)
 
-- FaceHelper
+-✅ FaceHelper
   - __init__()
   - __del__()
   - generate_face_region_mask(frame_image, video_id, frame_idx)
@@ -155,10 +157,18 @@ It's important to note that the training stages are progressive, meaning that ea
   - augmentedImageAtFrame(index)
   - augmentation(images, transform, state)
 
-- EMODataset
+-✅ EMODataset
   - __init__(use_gpu, data_dir, sample_rate, n_sample_frames, width, height, img_scale, img_ratio, video_dir, drop_ratio, json_file, stage, transform)
   - __len__()
   - augmentation(images, transform, state)
   - __getitem__(index)
 
   ```
+
+
+```javascript
+- EMOAnimationPipeline (copied from magicanimate)
+  - has some training code
+```
+
+ 
