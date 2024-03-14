@@ -19,12 +19,24 @@ https://github.com/MooreThreads/Moore-AnimateAnyone/blob/master/train_stage_1.py
 
 
 
-✅  Training data 36,000 videos / facial videos - 40gb
-https://academictorrents.com/details/843b5adb0358124d388c4e9836654c246b988ff4
+##   Training data 36,000 videos / facial videos - 40gb
 
-```shell
-magnet:?xt=urn:btih:843b5adb0358124d388c4e9836654c246b988ff4&dn=CelebV-HQ&tr=https%3A%2F%2Facademictorrents.com%2Fannounce.php&tr=https%3A%2F%2Fipv6.academictorrents.com%2Fannounce.php
-```
+      Torrent
+      https://academictorrents.com/details/843b5adb0358124d388c4e9836654c246b988ff4
+
+
+      original video -
+      [![Watch the video](https://img.youtube.com/vi/M2Ohb0FAaJU_1/maxresdefault.jpg)](https://youtu.be/M2Ohb0FAaJU_1)
+
+
+      sample video -(cropped,trimmed) N.B. there's also some rich tagging - see ./data/test.json
+      [![Watch the video](https://i.stack.imgur.com/Vp2cE.png)](./junk/M2Ohb0FAaJU_1.mp4)
+
+
+
+      ```shell
+      magnet:?xt=urn:btih:843b5adb0358124d388c4e9836654c246b988ff4&dn=CelebV-HQ&tr=https%3A%2F%2Facademictorrents.com%2Fannounce.php&tr=https%3A%2F%2Fipv6.academictorrents.com%2Fannounce.php
+      ```
 
 
 
@@ -172,3 +184,4 @@ https://github.com/johndpope/Emote-hack/blob/main/Net.py
 ```
 
  
+
