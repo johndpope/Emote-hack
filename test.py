@@ -1,70 +1,119 @@
 import torch
-import torchvision.transforms as transforms
-from PIL import Image
-import cv2
-from decord import AudioReader
-from Net import EMOModel
-import decord
+from Net import CrossAttentionLayer,AudioAttentionLayers,ReferenceAttentionLayer,BackboneNetwork, ReferenceNet, AudioAttentionLayers, TemporalModule,FramesEncodingVAE
+from diffusers import AutoencoderKL, DDIMScheduler
+from Net import EMOModel, VAE, ImageEncoder
+import unittest
+from Net import SpeedEncoder
+import unittest
+import torch
+from Net import CrossAttentionLayer, AudioAttentionLayers, ReferenceAttentionLayer, BackboneNetwork, ReferenceNet, TemporalModule, FramesEncodingVAE, EMOModel, VAE, ImageEncoder
 
-# Load the trained EMO model
-model_path = 'emo_model_stage3.pth'
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+class TestCrossAttentionLayer(unittest.TestCase):
+    def test_output_shape(self):
+        feature_dim = 512
+        batch_size = 2
+        seq_len = 10
+        latent_code = torch.randn(batch_size, feature_dim, seq_len)
+        audio_features = torch.randn(batch_size, feature_dim, seq_len)
+        cross_attention_layer = CrossAttentionLayer(feature_dim)
+        output = cross_attention_layer(latent_code, audio_features)
+        self.assertEqual(output.shape, (batch_size, feature_dim, seq_len))
 
-# Instantiate the EMOModel
-emo_model = EMOModel(
-    vae=None,
-    image_encoder=None,
-    config={
-        "feature_dim": 512,
-        "num_layers": 4,
-        "audio_feature_dim": 128,
-        "audio_num_layers": 2,
-        "num_speed_buckets": 5,
-        "speed_embedding_dim": 64,
-        "temporal_module": "conv"
-    }
-).to(device)
+class TestAudioAttentionLayers(unittest.TestCase):
+    def test_output_shape(self):
+        feature_dim = 512
+        num_layers = 3
+        batch_size = 2
+        seq_len = 10
+        latent_code = torch.randn(batch_size, feature_dim, seq_len)
+        audio_features = torch.randn(batch_size, feature_dim, seq_len)
+        audio_attention_layers = AudioAttentionLayers(feature_dim, num_layers)
+        output = audio_attention_layers(latent_code, audio_features)
+        self.assertEqual(output.shape, (batch_size, feature_dim, seq_len))
 
-# Load the trained weights
-emo_model.load_state_dict(torch.load(model_path, map_location=device))
-emo_model.eval()
+class TestReferenceAttentionLayer(unittest.TestCase):
+    def test_output_shape(self):
+        feature_dim = 512
+        batch_size = 2
+        seq_len = 10
+        latent_code = torch.randn(batch_size, feature_dim, seq_len)
+        reference_features = torch.randn(batch_size, feature_dim, 1)
+        reference_attention_layer = ReferenceAttentionLayer(feature_dim)
+        output = reference_attention_layer(latent_code, reference_features)
+        self.assertEqual(output.shape, (batch_size, feature_dim, seq_len))
 
-# Define the necessary transforms
-transform = transforms.Compose([
-    transforms.Resize((256, 256)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
-])
+class TestBackboneNetwork(unittest.TestCase):
+    def test_output_shape(self):
+        feature_dim = 512
+        num_layers = 3
+        batch_size = 2
+        seq_len = 10
+        latent_code = torch.randn(batch_size, feature_dim, seq_len)
+        audio_features = torch.randn(batch_size, feature_dim, seq_len)
+        ref_image = torch.randn(batch_size, 3, 256, 256)
+        reference_net = ReferenceNet()
+        audio_attention_layers = AudioAttentionLayers(feature_dim, num_layers)
+        temporal_module = TemporalModule()
+        backbone_network = BackboneNetwork(feature_dim, num_layers, reference_net, audio_attention_layers, temporal_module)
+        output = backbone_network(latent_code, audio_features, ref_image)
+        self.assertEqual(output.shape, (batch_size, feature_dim, seq_len))
 
-# Load the reference image
-reference_image_path = 'path/to/reference/image.jpg'
-reference_image = Image.open(reference_image_path).convert('RGB')
-reference_image = transform(reference_image).unsqueeze(0).to(device)
+class TestFramesEncodingVAE(unittest.TestCase):
+    def test_output_shape(self):
+        latent_dim = 256
+        img_size = 256
+        batch_size = 2
+        num_frames = 4
+        reference_image = torch.randn(batch_size, 3, img_size, img_size)
+        motion_frames = torch.randn(batch_size, num_frames, 3, img_size, img_size)
+        speed_value = torch.randn(batch_size, 1)
+        frames_encoding_vae = FramesEncodingVAE(latent_dim, img_size, None)
+        reconstructed_frames = frames_encoding_vae(reference_image, motion_frames, speed_value)
+        self.assertEqual(reconstructed_frames.shape, (batch_size, num_frames + 1, 3, img_size, img_size))
 
-# Load the audio frames
-audio_path = 'path/to/audio/file.mp3'
-audio_reader = AudioReader(audio_path, ctx=decord.cpu(), sample_rate=16000, mono=True)
-audio_frames = audio_reader[:]
+class TestEMOModel(unittest.TestCase):
+    def test_output_shape(self):
+        latent_dim = 256
+        img_size = 256
+        batch_size = 2
+        num_frames = 4
+        num_timesteps = 100
+        noisy_latents = torch.randn(batch_size, num_frames, latent_dim, img_size // 8, img_size // 8)
+        timesteps = torch.randint(0, num_timesteps, (batch_size,))
+        ref_image = torch.randn(batch_size, 3, img_size, img_size)
+        motion_frames = torch.randn(batch_size, num_frames, 3, img_size, img_size)
+        audio_features = torch.randn(batch_size, num_frames, 512)
+        head_rotation_speeds = torch.randn(batch_size, num_frames)
+        vae = VAE()
+        image_encoder = ImageEncoder()
+        config = {}  # Provide the necessary configuration
+        emo_model = EMOModel(vae, image_encoder, config)
+        output = emo_model(noisy_latents, timesteps, ref_image, motion_frames, audio_features, head_rotation_speeds)
+        self.assertEqual(output.shape, (batch_size, num_frames, latent_dim, img_size // 8, img_size // 8))
 
-# Specify the target head rotation speed - WHAT ??? TODO - fix this
-target_speed = 0.5
 
-# Generate the video frames
-output_video_path = 'video.mp4'
-video_writer = cv2.VideoWriter(output_video_path, cv2.VideoWriter_fourcc(*'mp4v'), 30, (512, 512))
+# class TestSpeedEncoder(unittest.TestCase):
+#     def setUp(self):
+#         # Initialize SpeedEncoder with example parameters
+#         num_speed_buckets = 9  # Example parameter, adjust as necessary
+#         speed_embedding_dim = 128  # Example parameter, adjust as necessary
+#         self.speed_encoder = SpeedEncoder(num_speed_buckets, speed_embedding_dim)
+    
+#     def test_speed_encoder_initialization(self):
+#         # Test whether SpeedEncoder initializes correctly with given parameters
+#         self.assertIsInstance(self.speed_encoder, SpeedEncoder, "SpeedEncoder did not initialize correctly.")
 
-with torch.no_grad():
-    for i in range(len(audio_frames)):
-        audio_frame = audio_frames[i].unsqueeze(0).to(device)
+#     def test_speed_encoder_output(self):
+#         # Assuming SpeedEncoder has a method to encode or process inputs, we test it here
+#         # Example input, adjust according to the actual method signature
+#         input_speed = 5  # Example speed value, adjust as necessary
+#         output = self.speed_encoder.encode_speed(input_speed)
         
-        # Perform inference
-        generated_frame = emo_model(reference_image, audio_frame, target_speed)
-        
-        # Convert the generated frame tensor to an array and adjust color channels
-        generated_frame = generated_frame.squeeze(0).permute(1, 2, 0).cpu().numpy()
-        generated_frame = (generated_frame * 0.5 + 0.5) * 255
-        generated_frame = cv2.cvtColor(generated_frame.astype('uint8'), cv2.COLOR_RGB2BGR)
-        
-        video_writer.write(generated_frame)
+#         # Example assertion, adjust based on expected output shape or properties
+#         self.assertEqual(output.shape, (speed_embedding_dim), "Output shape of SpeedEncoder does not match expected.")
 
-video_writer.release()
+
+
+
+if __name__ == '__main__':
+    unittest.main()
