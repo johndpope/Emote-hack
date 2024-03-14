@@ -1,4 +1,5 @@
-from manim import *
+from manim import Scene,IntegerArray,Text,Write,ReplacementTransform,FadeOut
+import numpy as np
 
 
 

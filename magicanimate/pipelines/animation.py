@@ -22,7 +22,7 @@ from collections import OrderedDict
 import torch
 import torch.distributed as dist
 
-from diffusers import AutoencoderKL, DDIMScheduler, UniPCMultistepScheduler
+from diffusers import AutoencoderKL, DDIMScheduler
 
 from tqdm import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer

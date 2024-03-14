@@ -20,7 +20,12 @@ https://github.com/MooreThreads/Moore-AnimateAnyone/blob/master/train_stage_1.py
 
 
 ✅  Training data 36,000 videos / facial videos - 40gb
-https://academictorrents.com/details/843b5adb0358124d388c4e9836
+https://academictorrents.com/details/843b5adb0358124d388c4e9836654c246b988ff4
+
+```shell
+magnet:?xt=urn:btih:843b5adb0358124d388c4e9836654c246b988ff4&dn=CelebV-HQ&tr=https%3A%2F%2Facademictorrents.com%2Fannounce.php&tr=https%3A%2F%2Fipv6.academictorrents.com%2Fannounce.php
+```
+
 in train_facelocator.py - I'm successfully using decord to extract frames / compute the masks.
 in train_stage_1.py(wip) this is factoring in heads speeds /velocities using mediapipe 
 
