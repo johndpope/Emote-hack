@@ -19,82 +19,39 @@ https://github.com/MooreThreads/Moore-AnimateAnyone/blob/master/train_stage_1.py
 
 
 
-##   Training data 36,000 videos / facial videos - 40gb
+## Training Data
 
-      Torrent
-      https://academictorrents.com/details/843b5adb0358124d388c4e9836654c246b988ff4
+- **Total Videos:** 36,000 facial videos
+- **Total Size:** 40GB
 
+### Torrent Download
 
-      original video -
-      [![Watch the video](https://img.youtube.com/vi/M2Ohb0FAaJU_1/maxresdefault.jpg)](https://youtu.be/M2Ohb0FAaJU_1)
+You can download the dataset via the provided magnet link or by visiting [Academic Torrents](https://academictorrents.com/details/843b5adb0358124d388c4e9836654c246b988ff4).
 
+\```plaintext
+magnet:?xt=urn:btih:843b5adb0358124d388c4e9836654c246b988ff4&dn=CelebV-HQ&tr=https%3A%2F%2Facademictorrents.com%2Fannounce.php&tr=https%3A%2F%2Fipv6.academictorrents.com%2Fannounce.php
+\```
 
-      sample video -(cropped,trimmed) N.B. there's also some rich tagging - see ./data/test.json
-      [![Watch the video](https://i.stack.imgur.com/Vp2cE.png)](./junk/M2Ohb0FAaJU_1.mp4)
+### Original Video
 
+[![Watch the Original Video](https://img.youtube.com/vi/M2Ohb0FAaJU_1/maxresdefault.jpg)](https://youtu.be/M2Ohb0FAaJU_1)
 
+### Sample Video (Cropped & Trimmed)
 
-      ```shell
-      magnet:?xt=urn:btih:843b5adb0358124d388c4e9836654c246b988ff4&dn=CelebV-HQ&tr=https%3A%2F%2Facademictorrents.com%2Fannounce.php&tr=https%3A%2F%2Fipv6.academictorrents.com%2Fannounce.php
-      ```
+Note: The sample includes rich tagging. For more details, see \`./data/test.json\`.
 
-
-
-
-
-
-
-
-## UPDATE
-rather than splitting up classes- I've collapsed into a single Net.py file to aid in copy and paste into LLM. 
-you can  also paste in the architecture diagram from pdf into chatgpt / claude and ask it to fix stuff.
+[![Watch the Sample Video](./junk/frame_0094_debug.jpg)](./junk/M2Ohb0FAaJU_1.mp4)
 
 
 
 
+What chat gpt says...
+![Image](./junk/bla.png)
 
-## Chat here about specific components (everyone has read/write access) - understandably there's flaws in this code - together we can fix.
+
 https://docs.google.com/spreadsheets/d/1meRHgcFZ8mxWplvJweAd-5P_tkH0UeD2eT2Ot_k46jA/edit#gid=865829673
 
 
-
-
-
-## Stage 1: Training the VAE (FramesEncodingVAE) with the Backbone Network and FaceLocator
-
-ORIGINAL PAPER
-The first stage is the image pretraining, where the Backbone Network, the ReferenceNet, and the Face Lo-
-cator are token into training, in this stage, the Backbone takes a single frame as
-input, while ReferenceNet handles a distinct, randomly chosen frame from the
-same video clip. Both the Backbone and the ReferenceNet initialize weights from the original SD. 
-
-
-CLAUDE 3 - OPUS
-In this stage, the focus is on training the Variational Autoencoder (VAE) to encode and decode video frames.
-The VAE consists of the FramesEncodingVAE class, which combines the encoding of reference and motion frames with additional components like ReferenceNet and SpeedEncoder.
-The Backbone Network (Denoising UNet) and FaceLocator are also trained during this stage.
-The goal is to learn a compressed representation of the video frames and reconstruct them accurately.
-The training process involves feeding reference images, motion frames, and speed values to the VAE and minimizing the reconstruction loss.
-
-
-
-## Stage 2: Training the Temporal Modules and Audio Layers
-In this stage, the temporal modules and audio layers are introduced into the training process.
-The temporal modules are responsible for ensuring smooth transitions and coherence between generated video frames.
-The audio layers integrate audio features into the generation process, allowing the model to synchronize the character's movements and expressions with the audio.
-During this stage, the model learns to generate video frames that are temporally consistent and aligned with the audio input.
-The training data includes video frames, audio features, and corresponding ground truth frames.
-
-## Stage 3: Training the Speed Layers
-
-The final stage focuses on training the speed layers of the model.
-The speed layers control the speed and stability of the generated character's motion across video clips.
-By training the speed layers, the model learns to generate videos with consistent and controllable character motion.
-The training data in this stage includes video frames, audio features, and speed embeddings.
-The model is trained to generate video frames that (match the specified speed ?? - this is WRONG - it should just do automatically) and maintain coherence across different clips.
-
-
-It's important to note that the training stages are progressive, meaning that each stage builds upon the previous one. The weights and learned representations from the previous stages are often used as initializations for the subsequent stages.
 
 
 
