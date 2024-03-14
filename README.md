@@ -38,7 +38,7 @@ magnet:?xt=urn:btih:843b5adb0358124d388c4e9836654c246b988ff4&dn=CelebV-HQ&tr=htt
 
 ### Sample Video (Cropped & Trimmed)
 
-Note: The sample includes rich tagging. For more details, see \`./data/test.json\`.
+Note: The sample includes rich tagging. For more details, see `./data/test.json`.
 
 [![Watch the Sample Video](./junk/frame_0094_debug.jpg)](./junk/M2Ohb0FAaJU_1.mp4)
 
