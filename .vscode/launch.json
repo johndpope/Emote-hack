@@ -8,7 +8,9 @@
             "name": "Python Debugger: Current File",
             "type": "debugpy",
             "request": "launch",
-            "program": "train_facelocator.py",
+            // "program": "./junk/AudioAttention/train.py",
+            // "program": "./train_stage_0.py",
+            "program": "./junk/AudioAttention/inference.py",
             "console": "integratedTerminal"
         }
     ]

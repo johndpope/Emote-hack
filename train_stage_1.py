@@ -112,7 +112,8 @@ def main(cfg: OmegaConf) -> None:
         img_scale=(1.0, 1.0),
         data_dir='./images_folder',
         video_dir='/home/oem/Downloads/CelebV-HQ/celebvhq/35666',
-        json_file='./data/celebvhq_info.json',
+        json_file='./data/overfit.json',
+        #json_file='./data/celebvhq_info.json',
         stage='stage1-vae',
         transform=transform
     )

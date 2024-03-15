@@ -19,7 +19,7 @@ https://github.com/MooreThreads/Moore-AnimateAnyone/blob/master/train_stage_1.py
 
 
 
-## Training Data
+## Training Data ( we actually dont need this yet.)
 
 - **Total Videos:** 36,000 facial videos
 - **Total Size:** 40GB
@@ -32,9 +32,10 @@ You can download the dataset via the provided magnet link or by visiting [Academ
 magnet:?xt=urn:btih:843b5adb0358124d388c4e9836654c246b988ff4&dn=CelebV-HQ&tr=https%3A%2F%2Facademictorrents.com%2Fannounce.php&tr=https%3A%2F%2Fipv6.academictorrents.com%2Fannounce.php
 ```
 
-### Original Video
 
-[![Watch the Original Video](https://img.youtube.com/vi/M2Ohb0FAaJU_1/maxresdefault.jpg)](https://youtu.be/M2Ohb0FAaJU_1)
+
+
+
 
 ### Sample Video (Cropped & Trimmed)
 
@@ -45,18 +46,22 @@ Note: The sample includes rich tagging. For more details, see `./data/test.json`
 
 
 
-What chat gpt says...
-![Image](./junk/bla.png)
+
+### Training Strategy
+for now - to simplify problem - we can use JUST the ./data/M2Ohb0FAaJU_1.mp4.
+We don't need the 40gb of videos. 
+Once all stages are trained on this single video (by overfitting this single use case) 
+we should be able to give EMO the first frame + audio and it should produce a video with head moving.
 
 
-https://docs.google.com/spreadsheets/d/1meRHgcFZ8mxWplvJweAd-5P_tkH0UeD2eT2Ot_k46jA/edit#gid=865829673
 
 
 
-
-
-
+Almost all the models are here
 https://github.com/johndpope/Emote-hack/blob/main/Net.py
+
+I'm exploring audio attention in junk folder.
+
 
 ```javascript
 
