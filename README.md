@@ -18,11 +18,27 @@ The Moore-AnimateAnyone seems very close to this implementation - it was ripped 
 https://github.com/MooreThreads/Moore-AnimateAnyone/blob/master/train_stage_1.py
 
 
+UPDATE
+this repo by @jimmyl02 also recreates the AnimateAnyone paper - though it has some improvements.
+I cherry pick their VideoNet / temporal classes in models.This direction looks most promising. It has 
+https://github.com/jimmyl02/animate/
 
-## Training Data ( we actually dont need this yet.)
+
+
+
+## Training Data (☢️ dont need this yet.)
 
 - **Total Videos:** 36,000 facial videos
 - **Total Size:** 40GB
+
+
+### Training Strategy
+for now - to simplify problem - we can use JUST the ./data/M2Ohb0FAaJU_1.mp4.
+We don't need the 40gb of videos. 
+Once all stages are trained on this single video (by overfitting this single use case) 
+we should be able to give EMO the first frame + audio and it should produce a video with head moving.
+
+
 
 ### Torrent Download
 
@@ -35,8 +51,6 @@ magnet:?xt=urn:btih:843b5adb0358124d388c4e9836654c246b988ff4&dn=CelebV-HQ&tr=htt
 
 
 
-
-
 ### Sample Video (Cropped & Trimmed)
 
 Note: The sample includes rich tagging. For more details, see `./data/test.json`.
@@ -44,15 +58,7 @@ Note: The sample includes rich tagging. For more details, see `./data/test.json`
 [![Watch the Sample Video](./junk/frame_0094_debug.jpg)](./junk/M2Ohb0FAaJU_1.mp4)
 
 
-
-
-
-### Training Strategy
-for now - to simplify problem - we can use JUST the ./data/M2Ohb0FAaJU_1.mp4.
-We don't need the 40gb of videos. 
-Once all stages are trained on this single video (by overfitting this single use case) 
-we should be able to give EMO the first frame + audio and it should produce a video with head moving.
-
+### AnimateDiff
 
 
 

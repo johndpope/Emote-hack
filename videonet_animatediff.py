@@ -25,11 +25,11 @@ from models.motionmodule import get_motion_module
 import tensorboard
 from torch.utils.tensorboard import SummaryWriter
 from models.videonet import VideoNet
-
+from magicanimate.models.unet_controlnet import UNet3DConditionModel
 torch.manual_seed(17)
 
 import pkg_resources
-
+from omegaconf import OmegaConf
 for entry_point in pkg_resources.iter_entry_points('tensorboard_plugins'):
     print("tensorboard_plugins:",entry_point.dist)
 
@@ -57,7 +57,7 @@ def load_mm(video_net: VideoNet, mm_state_dict):
 
         
 if __name__ == '__main__':
-    num_frames = 8
+    num_frames = 24
 
     vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-ema")
     # construct pipe from imag evariation diffuser
@@ -69,30 +69,39 @@ if __name__ == '__main__':
     # load mm pretrained weights from animatediff
     load_mm(video_net, torch.load('/media/2TB/stable-diffusion-webui/extensions/sd-webui-animatediff/model/v3_sd15_mm.ckpt'))
 
+    for name, module in video_net.named_modules():
+            print(f" name:{name} layer:{module.__class__.__name__}")
+          
+
     # Step 2: Initialize the TensorBoard SummaryWriter
-    writer = SummaryWriter('runs/videonet_experiment')
+    # writer = SummaryWriter('runs/videonet_experiment')
 
-    # Assuming you have already loaded your model as `video_net`
-    # Step 3: Add model graph to TensorBoard
-    # Note: You may need to pass a sample input to `add_graph` depending on your model structure
-    # Here, `initial_noise` is a sample input tensor
-    # Get the correct number of latent dimensions from the model's configuration
-    # Get the correct number of latent dimensions from the model's configuration
-    num_channels_latent = 4  # This should be verified from the model's configuration
 
-    # Initial noise tensor should match the latent dimensions and the model's expected input size
-    initial_noise = torch.randn(1, num_channels_latent, 512, 512).to(device)
+    # inference_config = OmegaConf.load("configs/inference.yaml")
+        
+    # unet = UNet3DConditionModel.from_pretrained_2d('/media/2TB/ani/animate-anyone/pretrained_models/sd-image-variations-diffusers', subfolder="unet", unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs)).cuda()
+       
+    # # Get the correct number of latent dimensions from the model's configuration
+    # num_channels_latent = 4  # This should be verified from the model's configuration
 
-    # Timestep tensor; the value might need to be adjusted based on how the diffusion model processes it
-    timesteps = torch.tensor([1]).to("cuda")
+    # # Create dummy data
+    # batch_size = 1
+    # frames = 16
+    # height = 512
+    # width = 512
 
-    # Assuming reference_embeddings need to match the number of attention blocks in your VideoNet model
-    n = len(video_net.ref_cond_attn_blocks)
-    reference_embeddings = torch.randn(1, n, num_channels_latent, 512, 512).to(device)
+    # # Create the sample tensor (noisy latent image)
+    # sample = torch.randn(batch_size, num_channels_latent, frames, height, width).to(device)
 
-    # Clip condition embeddings should match the latent dimensions and expected size
-    clip_condition_embeddings = torch.randn(1, num_channels_latent, 512, 512).to(device)
+    # # Create the timestep tensor
+    # timestep = torch.tensor([1]).to(device)  # Replace 50 with the desired timestep value
 
-    # You need to ensure the shapes and types match what your VideoNet model expects
-    with torch.no_grad():
-        writer.add_graph(video_net, (initial_noise, timesteps, reference_embeddings, clip_condition_embeddings))
+    # # Create the encoder hidden states tensor
+    # encoder_hidden_states = torch.randn(batch_size, frames, 1).to(device)  # Assuming 768 is the hidden size
+
+    # # Create the class labels tensor (optional)
+    # class_labels = None  # Set to None if not using class conditioning
+
+    # # Perform the forward pass
+    # with torch.no_grad():
+    #     output = unet(sample, timestep, None, class_labels)
