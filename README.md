@@ -7,23 +7,100 @@ using chatgpt to reverse engineer code from HumanAIGC/EMO white paper. Work in p
 ![Image](https://github.com/johndpope/Emote-hack/assets/289994/0d758a3a-841f-4849-b58c-439dda05c9a7)
 
 
-Just copy and paste the html from here in chatgpt (custom chat)
-https://chat.openai.com/g/g-UzGVIbBpB-diffuser-wizard
 https://arxiv.org/html/2402.17485v1
 
 
-The Moore-AnimateAnyone seems very close to this implementation - it was ripped off from magicanimate 
-(which cherry picked from animatediff) it has training code train_stage_1.py
+## WARNING -  the repo is work in progress. If you're here to train the model - come back later. Classes here are more like placeholders / building blocks.
+The heavy lifting now is implementing the denoise of unet/ integrating attentions.
+
+
+
+## Background papers to research / study 
+- **AnimateDiff** (no training code?)
+- **MagicAnimate** (no training code?)
+- **AnimateAnyone** (no code)
+- **Moore-AnimateAnyone** (training code)
+- **AnimateAnyone** - https://github.com/jimmyl02/animate/tree/main/animate-anyone
+
+These papers build on previous code. 
+
+There's training code here train_stage_1.py
 https://github.com/MooreThreads/Moore-AnimateAnyone/blob/master/train_stage_1.py
 
+3 training stages here
+https://github.com/jimmyl02/animate/tree/main/animate-anyone
 
-UPDATE
-this repo by @jimmyl02 attempts to recreate the AnimateAnyone paper.
-I cherry pick their VideoNet / temporal classes in models.This direction looks most promising. Yet to do the training.
-https://github.com/jimmyl02/animate/
 
-WARNING -  the classes here are more like placeholders / building blocks.
-The heavy lifting now is understanding animatediff - and how to integrate attentions. Most of the research papers are building off previous code - so while it may seem backward to reference that code - standing on their shoulders seems like viable path. 
+While this is using poseguider - it's not hard to see a dwpose / facial driving the animation. https://www.reddit.com/r/StableDiffusion/comments/1281iva/new_controlnet_face_model/?rdt=50313&onetap_auto=true
+
+
+
+
+
+
+
+
+# Model Architecture:
+Almost all the models are here
+https://github.com/johndpope/Emote-hack/blob/main/Net.py
+
+I'm exploring audio attention in junk folder.
+There's a synthesize class that will generate both sounds / images.
+this paper is supposed to train the audio attention so if it gets 
+a specific sound - it would correspond to facial movements.
+This needs further exploring / testing.
+./junk/AudioAttention/synthesize.py 
+ideally the network would take a sound - and show an facial expression. Right?
+Facelocator is drafted - could use extra eyes - the paper is saying the face region is a M mask for all the video frames.
+
+
+## Face Locator:
+The face locator is a separate module that learns to detect and localize the face region in a single input image.It takes a reference image as input and outputs the corresponding face region mask.(DRAFTED - train_stage_0.py)
+
+## Speed Encoder:
+The speed encoder takes the audio waveform as input and extracts speed embeddings.
+The speed embeddings encode the velocity and motion information derived from the audio.
+
+## Backbone Network (Audio-Driven Generator):
+The backbone network is an audio-driven generator that takes the following inputs:
+The face region image extracted by the face locator from the reference image.
+The speed embeddings obtained from the speed encoder.
+Noisy latents generated from the face region image.
+The backbone network generates the output video frames conditioned on the audio and the reference image.
+It incorporates the speed embeddings to guide the motion and velocity of the generated frames.
+
+
+# Inference Process:
+
+  ## Reference Image:
+  During inference, the user provides a single reference image of the desired character.
+  ## Face Locator:
+  The face locator is applied to the reference image to detect and extract the face region.
+  The face region mask is obtained from the face locator.
+  ## Audio Waveform:
+  The user provides an audio waveform as input, which can be a speech or any other audio signal.
+  ## Speed Encoder:
+  The audio waveform is passed through the speed encoder to obtain the speed embeddings.
+  The speed embeddings encode the velocity and motion information derived from the audio.
+
+  ## Backbone Network (Audio-Driven Generator):
+  The extracted face region image, speed embeddings, and noisy latents are fed into the backbone network.
+  The backbone network generates the output video frames conditioned on the audio and the reference image.
+  The speed embeddings guide the motion and velocity of the generated frames, ensuring synchronization with the audio.
+
+# Training Process:
+
+  ## Face Locator:
+  The face locator is trained separately using a dataset of images with corresponding face region annotations or masks.
+
+  ## Speed Encoder:
+  The speed encoder is trained using a dataset of audio waveforms and corresponding velocity or motion annotations.
+  ## Backbone Network (Audio-Driven Generator):
+  The backbone network is trained using a dataset consisting of reference images, audio waveforms, and corresponding ground truth video frames.
+  During training, the face locator extracts the face regions from the reference images, and the speed encoder provides the speed embeddings from the audio waveforms.
+  The backbone network learns to generate video frames that match the ground truth frames while being conditioned on the audio and reference image.
+
+In this rearchitected model, the inference process takes a single reference image and an audio waveform as input, and the model generates the output video frames conditioned on the audio and the reference image. The face locator and speed encoder are used to extract the necessary information from the inputs, which is then fed into the backbone network for generating the output video.
 
 
 
@@ -33,14 +110,9 @@ The heavy lifting now is understanding animatediff - and how to integrate attent
 - **Total Size:** 40GB
 
 
-
-
-
 ### Training Strategy
-for now - to simplify problem - we can use JUST the ./data/M2Ohb0FAaJU_1.mp4.
-We don't need the 40gb of videos. 
-Once all stages are trained on this single video (by overfitting this single use case) 
-we should be able to give EMO the first frame + audio and it should produce a video with head moving.
+for now - to simplify problem - we can use a single video the ./data/M2Ohb0FAaJU_1.mp4. We don't need the 40gb of videos. 
+Once all stages are trained on this single video (by overfitting this single use case)  we should be able to give EMO the first frame + audio and it should produce a video with head moving.
 
 
 
@@ -52,9 +124,6 @@ You can download the dataset via the provided magnet link or by visiting [Academ
 magnet:?xt=urn:btih:843b5adb0358124d388c4e9836654c246b988ff4&dn=CelebV-HQ&tr=https%3A%2F%2Facademictorrents.com%2Fannounce.php&tr=https%3A%2F%2Fipv6.academictorrents.com%2Fannounce.php
 ```
 
-There's also this one
-https://www.kaggle.com/datasets/yasaminjafarian/tiktokdataset/
-
 
 
 ### Sample Video (Cropped & Trimmed)
@@ -64,15 +133,10 @@ Note: The sample includes rich tagging. For more details, see `./data/test.json`
 [![Watch the Sample Video](./junk/frame_0094_debug.jpg)](./junk/M2Ohb0FAaJU_1.mp4)
 
 
-### AnimateDiff
+
+### Models / architecture
 
 
-
-
-Almost all the models are here
-https://github.com/johndpope/Emote-hack/blob/main/Net.py
-
-I'm exploring audio attention in junk folder.
 
 
 ```javascript
