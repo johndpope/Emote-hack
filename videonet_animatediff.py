@@ -69,16 +69,8 @@ if __name__ == '__main__':
     # load mm pretrained weights from animatediff
     load_mm(video_net, torch.load('/media/2TB/stable-diffusion-webui/extensions/sd-webui-animatediff/model/v3_sd15_mm.ckpt'))
 
-
-    # Create an optimized model with DepthwiseSeparableInflatedConv3d layers
-    optimized_model = copy.deepcopy(video_net)
-
-
-
     # Step 2: Initialize the TensorBoard SummaryWriter
     writer = SummaryWriter('runs/videonet_experiment')
-
-
 
     # Assuming you have already loaded your model as `video_net`
     # Step 3: Add model graph to TensorBoard
