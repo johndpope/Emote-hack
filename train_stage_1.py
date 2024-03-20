@@ -94,6 +94,7 @@ def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cf
 
 # BACKBONE ~ MagicAnimate class
 # Stage 1: Train the VAE (FramesEncodingVAE) with the Backbone Network and FaceLocator.
+
 def main(cfg: OmegaConf) -> None:
 
 
@@ -130,6 +131,10 @@ def main(cfg: OmegaConf) -> None:
 
     # Model, Criterion, Optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+
+
     model = FramesEncodingVAE(input_channels=3, latent_dim=256, img_size=cfg.data.train_height, reference_net=None).to(device)
     criterion = nn.MSELoss()  # Use MSE loss for VAE reconstruction
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)

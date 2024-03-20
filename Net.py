@@ -37,7 +37,7 @@ os.environ["OPENCV_LOG_LEVEL"]="FATAL"
 
 # JAM EVERYTHING INTO 1 CLASS - so Claude 3 / Chatgpt can analyze at once
 
-
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class FramesEncodingVAE(nn.Module):
     """

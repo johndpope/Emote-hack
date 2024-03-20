@@ -4,7 +4,6 @@
 using chatgpt to reverse engineer code from HumanAIGC/EMO white paper. Work in progress - WIP
 
 
-
 ![Image](https://github.com/johndpope/Emote-hack/assets/289994/0d758a3a-841f-4849-b58c-439dda05c9a7)
 
 
@@ -19,10 +18,12 @@ https://github.com/MooreThreads/Moore-AnimateAnyone/blob/master/train_stage_1.py
 
 
 UPDATE
-this repo by @jimmyl02 also recreates the AnimateAnyone paper - though it has some improvements.
-I cherry pick their VideoNet / temporal classes in models.This direction looks most promising. It has 
+this repo by @jimmyl02 attempts to recreate the AnimateAnyone paper.
+I cherry pick their VideoNet / temporal classes in models.This direction looks most promising. Yet to do the training.
 https://github.com/jimmyl02/animate/
 
+WARNING -  the classes here are more like placeholders / building blocks.
+The heavy lifting now is understanding animatediff - and how to integrate attentions. Most of the research papers are building off previous code - so while it may seem backward to reference that code - standing on their shoulders seems like viable path. 
 
 
 
@@ -30,6 +31,9 @@ https://github.com/jimmyl02/animate/
 
 - **Total Videos:** 36,000 facial videos
 - **Total Size:** 40GB
+
+
+
 
 
 ### Training Strategy
@@ -48,6 +52,8 @@ You can download the dataset via the provided magnet link or by visiting [Academ
 magnet:?xt=urn:btih:843b5adb0358124d388c4e9836654c246b988ff4&dn=CelebV-HQ&tr=https%3A%2F%2Facademictorrents.com%2Fannounce.php&tr=https%3A%2F%2Fipv6.academictorrents.com%2Fannounce.php
 ```
 
+There's also this one
+https://www.kaggle.com/datasets/yasaminjafarian/tiktokdataset/
 
 
 

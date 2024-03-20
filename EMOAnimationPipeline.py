@@ -61,13 +61,14 @@ from magicanimate.pipelines.context import (
 from magicanimate.utils.util import get_tensor_interpolation_method
 from Net import Wav2VecFeatureExtractor,SpeedEncoder
 from accelerate import Accelerator
-from diffusers import AutoencoderKL, DDIMScheduler
 from transformers import CLIPVisionModelWithProjection
 from omegaconf import OmegaConf
 
 import argparse
-import logging
-import os
+import random
+
+
+import torch.nn.functional as F
 
 from Net import EMOModel
 
