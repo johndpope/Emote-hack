@@ -2,7 +2,7 @@ import os
 import torchvision
 import torch
 
-# pip3 install --U torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# pip3 install -U torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 from diffusers import StableDiffusionPipeline
 from audiocraft.models import AudioGen
 from audiocraft.data.audio import audio_write
@@ -17,8 +17,20 @@ pipe = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5",
 pipe = pipe.to(device)
 
 # Define the audio descriptions and corresponding image descriptions
-descriptions = ['beep', 'tick', 'buzz']
-image_descriptions = ['a circle on a white background', 'a square on a white background', 'a triangle on a white background']
+descriptions = ['Aah', 'Ooh', 'Mmm']
+image_descriptions = ['A person with their mouth wide open, as if saying "Aah"', 'A person with pursed lips, as if saying "Ooh"', 'A person with a slight smile and closed eyes, as if savoring something and saying "Mmm"']
+
+
+
+
+# A person with a confused expression, raised eyebrows, and slightly open mouth, as if saying "Huh"
+# A person with a disgusted expression, furrowed brows, and a frown, as if saying "Ugh"
+# A person with wide eyes, raised eyebrows, and an open mouth, as if expressing surprise and saying "Wow"
+# A person with a finger to their lips, as if saying "Shh"
+# A person wiping their brow with a relieved expression, as if saying "Phew"
+# A person with a touched or sympathetic expression, as if saying "Aww"
+# A person with a disapproving expression, clicking their tongue, as if saying "Tsk"
+# A person shivering with a cold expression, as if saying "Brrr"
 
 # Set up the output directory
 output_dir = 'synthetic_dataset'
@@ -30,7 +42,7 @@ for desc, img_desc in zip(descriptions, image_descriptions):
     for i in range(num_samples):
         # Generate audio
         wav = model.generate([desc])
-        audio_filename = f"{desc}_{i}.wav"
+        audio_filename = f"{desc}_{i}"
         audio_path = os.path.join(output_dir, audio_filename)
         audio_write(audio_path, wav[0].cpu(), model.sample_rate, strategy="loudness")
 

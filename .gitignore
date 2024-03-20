@@ -1,3 +1,9 @@
 images_folder
 *.pyc
 temp/debug_face_mask_xgMGnhrKZQI_14-99.png
+junk/media/Tex/*
+junk/AudioAttention/synthetic_dataset/*.*
+junk/media/videos/depthwise/*.*
+junk/media/videos/bla/*
+junk/media/videos/*
+junk/media/texts/*
