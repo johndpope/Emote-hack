@@ -20,25 +20,21 @@ The heavy lifting now is implementing the denoise of unet/ integrating attention
 - **MagicAnimate** (no training code?)
 - **AnimateAnyone** (no code)
 - **Moore-AnimateAnyone** (training code)
+  There's training code for 3 stages
+  https://github.com/MooreThreads/Moore-AnimateAnyone/blob/master/train_stage_1.py
 - **AnimateAnyone** - https://github.com/jimmyl02/animate/tree/main/animate-anyone
-
-These papers build on previous code. 
-
-There's training code here train_stage_1.py
-https://github.com/MooreThreads/Moore-AnimateAnyone/blob/master/train_stage_1.py
-
-3 training stages here
-https://github.com/jimmyl02/animate/tree/main/animate-anyone
-
-
+  3 training stages here
+  https://github.com/jimmyl02/animate/tree/main/animate-anyone
 While this is using poseguider - it's not hard to see a dwpose / facial driving the animation. https://www.reddit.com/r/StableDiffusion/comments/1281iva/new_controlnet_face_model/?rdt=50313&onetap_auto=true
 
 
+These papers build on previous code. 
 
 
 
 
-
+Claude3 has been the best to use to understand the paper.
+It's possible to upload the text of paper / the diagram / and throw all the code at it. It has 200k context size. 
 
 # Model Architecture:
 Almost all the models are here
@@ -50,8 +46,7 @@ this paper is supposed to train the audio attention so if it gets
 a specific sound - it would correspond to facial movements.
 This needs further exploring / testing.
 ./junk/AudioAttention/synthesize.py 
-ideally the network would take a sound - and show an facial expression. Right?
-Facelocator is drafted - could use extra eyes - the paper is saying the face region is a M mask for all the video frames.
+ideally the network would take a sound (wav2vec stuff) - and show an facial expression. Right? Facelocator is drafted - could use extra eyes - the paper is saying the face region is a M mask for all the video frames.
 
 
 ## Face Locator:
