@@ -63,9 +63,10 @@ from Net import Wav2VecFeatureExtractor,SpeedEncoder
 from accelerate import Accelerator
 from transformers import CLIPVisionModelWithProjection
 from omegaconf import OmegaConf
-
+import os
 import argparse
 import random
+import yaml
 
 
 import torch.nn.functional as F
@@ -865,9 +866,22 @@ def main(cfg):
     vae = AutoencoderKL.from_pretrained(cfg.vae_model_path).to("cuda")
     image_enc = CLIPVisionModelWithProjection.from_pretrained(cfg.image_encoder_path).to("cuda")
     
+    # Load the YAML configuration file
+    with open('./configs/config.yaml', 'r') as file:
+        config = yaml.safe_load(file)
+
+    # Access the reference_unet_config based on args.v2
+    if args.v2:
+        unet_config = config['reference_unet_config']['v2']
+        denoise_unet_config = config['denoising_unet_config']['v2']
+    else:
+        unet_config = config['reference_unet_config']['default']
+        denoise_unet_config = config['denoising_unet_config']['default']
+  
+        
     emo_config = {
-        "reference_unet_config": cfg.reference_unet_config,
-        "denoising_unet_config": cfg.denoising_unet_config,
+        "reference_unet_config": unet_config,
+        "denoising_unet_config": denoise_unet_config,
         "num_speed_buckets": cfg.num_speed_buckets,
         "speed_embedding_dim": cfg.speed_embedding_dim,
     }

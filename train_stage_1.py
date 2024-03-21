@@ -11,7 +11,7 @@ from Net import FaceLocator,EMODataset,FramesEncodingVAE
 from typing import List, Dict, Any
 # Other imports as necessary
 import torch.optim as optim
-
+import yaml
 
 
 # works but complicated 
@@ -133,9 +133,30 @@ def main(cfg: OmegaConf) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+  # Load the YAML configuration file
+    with open('./configs/config.yaml', 'r') as file:
+        config = yaml.safe_load(file)
 
+    v2 = False # SD 2.1
+    # Access the reference_unet_config based on args.v2
+    if v2:
+        unet_config = config['reference_unet_config']['v2']
+        denoise_unet_config = config['denoising_unet_config']['v2']
+    else:
+        # SD 1.5
+        unet_config = config['reference_unet_config']['default']
+        denoise_unet_config = config['denoising_unet_config']['default']
+  
+        
+    emo_config = {
+        "reference_unet_config": unet_config,
+        "denoising_unet_config": denoise_unet_config,
+        "num_speed_buckets": cfg.num_speed_buckets,
+        "speed_embedding_dim": cfg.speed_embedding_dim,
+    }
+    
 
-    model = FramesEncodingVAE(input_channels=3, latent_dim=256, img_size=cfg.data.train_height, reference_net=None).to(device)
+    model = FramesEncodingVAE(input_channels=3, latent_dim=256, img_size=cfg.data.train_height, reference_net=emo_config.reference_unet_config).to(device)
     criterion = nn.MSELoss()  # Use MSE loss for VAE reconstruction
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
