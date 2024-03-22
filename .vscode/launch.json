@@ -10,8 +10,10 @@
             "request": "launch",
             // "program": "./junk/AudioAttention/train.py",
             // "program": "./train_stage_0.py",
-            "program": "./junk/AudioAttention/inference.py",
-            "console": "integratedTerminal"
+            // "program": "./junk/AudioAttention/inference.py",
+            "program": "videonet_animatediff.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
         }
     ]
 }

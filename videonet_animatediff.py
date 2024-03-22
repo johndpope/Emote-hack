@@ -33,6 +33,12 @@ from omegaconf import OmegaConf
 for entry_point in pkg_resources.iter_entry_points('tensorboard_plugins'):
     print("tensorboard_plugins:",entry_point.dist)
 
+import zmq
+import time
+import json
+
+
+
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -88,39 +94,41 @@ if __name__ == '__main__':
     # load mm pretrained weights from animatediff
     load_mm(video_net, torch.load('/media/2TB/stable-diffusion-webui/extensions/sd-webui-animatediff/model/v3_sd15_mm.ckpt'))
 
+
+    # Setup ZMQ context and socket
+    ctx = zmq.Context()
+    socket = ctx.socket(zmq.PUB)  # PUB socket for publishing messages
+    socket.bind('tcp://127.0.0.1:5555')
+    # Wait a moment to allow subscribers to connect
+    time.sleep(1)
+
+    def notify_forward_hook(module_identifier):
+        def hook(module, input, output):
+            # Dispatch message only when forward pass occurs
+            msg = f"Forward pass through: {module_identifier}"
+            socket.send_string(msg)
+            print(msg)  # Also print to console for verification
+        return hook
+
+    # Register the hook for all modules and pass the module identifier
     for name, module in video_net.named_modules():
-            print(f" name:{name} layer:{module.__class__.__name__}")
-          
+        hook = notify_forward_hook(f"{name} ({module.__class__.__name__})")
+        module.register_forward_hook(hook)
 
-    # Step 2: Initialize the TensorBoard SummaryWriter
-    # writer = SummaryWriter('runs/videonet_experiment')
+    # video_net.eval()
+    socket.send_string("hello")
+        # Dummy dimensions
+    N = 4  # batch size
+    L = 256  # latent dimension size
+    T = 1  # time steps, assuming a single time step for simplicity
+    E = 512  # embedding size
 
+    # Sample data generation
+    input_latents = torch.rand(N, L)
+    t = torch.rand(N, T)
+    reference_frame_embeddings = torch.rand(N, E)
+    clip_raw_frame_embeddings = torch.rand(N, E)
 
-    # inference_config = OmegaConf.load("configs/inference.yaml")
-        
-    # unet = UNet3DConditionModel.from_pretrained_2d('/media/2TB/ani/animate-anyone/pretrained_models/sd-image-variations-diffusers', subfolder="unet", unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs)).cuda()
-       
-    # # Get the correct number of latent dimensions from the model's configuration
-    # num_channels_latent = 4  # This should be verified from the model's configuration
-
-    # # Create dummy data
-    # batch_size = 1
-    # frames = 16
-    # height = 512
-    # width = 512
-
-    # # Create the sample tensor (noisy latent image)
-    # sample = torch.randn(batch_size, num_channels_latent, frames, height, width).to(device)
-
-    # # Create the timestep tensor
-    # timestep = torch.tensor([1]).to(device)  # Replace 50 with the desired timestep value
-
-    # # Create the encoder hidden states tensor
-    # encoder_hidden_states = torch.randn(batch_size, frames, 1).to(device)  # Assuming 768 is the hidden size
-
-    # # Create the class labels tensor (optional)
-    # class_labels = None  # Set to None if not using class conditioning
-
-    # # Perform the forward pass
-    # with torch.no_grad():
-    #     output = unet(sample, timestep, None, class_labels)
+    # Assuming video_net is your VideoNet model instance
+    # Perform a forward pass
+    noise_pred = video_net(input_latents, t, reference_frame_embeddings, clip_raw_frame_embeddings, skip_temporal_attn=True)

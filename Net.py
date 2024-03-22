@@ -24,7 +24,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.transforms import ToTensor
 from transformers import Wav2Vec2Model, Wav2Vec2Processor
-
+from diffusers.models import ControlNetModel
 
 
 # Use decord's CPU or GPU context
@@ -726,7 +726,47 @@ class FaceLocator(nn.Module):
         return logits_upsampled
 
 
+# https://github.com/johndpope/Emote-hack/issues/23 
+class FaceProjector(nn.Module):
+    def __init__(self):
+        super(FaceProjector, self).__init__()
+        # Define convolutional layers for the current frame
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
 
+        # Define convolutional layers for the downsampled activations
+        self.conv1_down = nn.Conv2d(64, 32, kernel_size=3, stride=1, padding=1)
+        self.conv2_down = nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1)
+
+        # Define the final convolutional layer to output the predicted next frame
+        self.final_conv = nn.Conv2d(80, 3, kernel_size=1)
+
+    def forward(self, current_frame, down_block_res_samples):
+        # Forward pass through the convolutional layers for the current frame
+        x = F.relu(self.conv1(current_frame))
+        x = self.pool(x)
+        x = F.relu(self.conv2(x))
+        x = self.pool(x)
+        x = F.relu(self.conv3(x))
+        x = self.pool(x)  # Shape after pooling: (B, 64, H/8, W/8)
+
+        # Process the downsampled activations
+        down_x = down_block_res_samples[-1]  # Use the lowest resolution downsampled activation
+        down_x = F.relu(self.conv1_down(down_x))
+        down_x = F.relu(self.conv2_down(down_x))
+
+        # Concatenate the processed current frame and downsampled activations
+        combined = torch.cat([x, down_x], dim=1)  # Shape: (B, 80, H/8, W/8)
+
+        # Pass through the final convolutional layer to predict the next frame
+        predicted_next_frame = self.final_conv(combined)  # Shape: (B, 3, H/8, W/8)
+
+        # Upsample the predicted next frame to the original resolution
+        predicted_next_frame = F.interpolate(predicted_next_frame, size=current_frame.shape[-2:], mode='bilinear', align_corners=False)
+
+        return predicted_next_frame
 
 
 class FaceHelper:
@@ -1071,6 +1111,14 @@ class EMODataset(Dataset):
         self.stage = stage
         self.feature_extractor = Wav2VecFeatureExtractor(model_name='facebook/wav2vec2-base-960h', device='cuda')
 
+
+        # Initialize ControlNetMediaPipeFace
+        self.controlnet = ControlNetModel.from_pretrained(
+            "CrucibleAI/ControlNetMediaPipeFace",
+            subfolder="diffusion_sd15",
+            torch_dtype=torch.float16
+        )
+  
         self.face_mask_generator = FaceHelper()
         self.pixel_transform = transforms.Compose(
             [
@@ -1136,6 +1184,9 @@ class EMODataset(Dataset):
             face_locator = FaceHelper()
         
             speeds_tensor_list = []
+            down_block_res_samples_list = []
+            mid_block_res_sample_list = []
+
             for frame_idx in range(video_length):
                 # Read frame and convert to PIL Image
                 frame = Image.fromarray(video_reader[frame_idx].numpy())
@@ -1145,7 +1196,6 @@ class EMODataset(Dataset):
                 pixel_values_frame = self.augmentation(frame, self.pixel_transform, state)
                 vid_pil_image_list.append(pixel_values_frame)
 
-
                 # Convert the transformed frame back to NumPy array in RGB format
                 transformed_frame_np = np.array(pixel_values_frame.permute(1, 2, 0).numpy() * 255, dtype=np.uint8)
                 transformed_frame_np = cv2.cvtColor(transformed_frame_np, cv2.COLOR_RGB2BGR)
@@ -1153,19 +1203,42 @@ class EMODataset(Dataset):
                 # Generate the mask using the face mask generator
                 mask_np = self.face_mask_generator.generate_face_region_mask_np_image(transformed_frame_np, video_id, frame_idx)
 
-                    # Convert the mask from numpy array to PIL Image
+                # Convert the mask from numpy array to PIL Image
                 mask_pil = Image.fromarray(mask_np)
 
                 # Transform the PIL Image mask to a PyTorch tensor
                 mask_tensor = transform_to_tensor(mask_pil)
                 mask_tensor_list.append(mask_tensor)
-            
-            # Convert list of lists to a tensor
-   
+
+                # Perform forward pass with ControlNetMediaPipeFace
+                # https://github.com/johndpope/Emote-hack/issues/23
+               
+                # Provide the missing arguments
+                timestep = torch.zeros((1,), dtype=torch.float32, device=self.controlnet.device)
+
+                # timestep = torch.zeros((1,), dtype=torch.long, device=self.controlnet.device)
+                encoder_hidden_states = torch.zeros((1, 1, 768), device=self.controlnet.device)  # Adjust the dimensions as needed
+                controlnet_cond = pixel_values_frame.unsqueeze(0)
+
+                controlnet_output = self.controlnet.forward(
+                    pixel_values_frame.unsqueeze(0),
+                    timestep=timestep,
+                    encoder_hidden_states=encoder_hidden_states,
+                    controlnet_cond=controlnet_cond
+                )
+                # Access downsampled activations and middle block activation
+                down_block_res_samples = controlnet_output.down_block_res_samples
+                mid_block_res_sample = controlnet_output.mid_block_res_sample
+
+                down_block_res_samples_list.append(down_block_res_samples)
+                mid_block_res_sample_list.append(mid_block_res_sample)
+
             sample = {
                 "video_id": video_id,
                 "images": vid_pil_image_list,
                 "masks": mask_tensor_list,
+                "down_block_res_samples": down_block_res_samples_list,
+                "mid_block_res_sample": mid_block_res_sample_list
             }
 
         elif self.stage == 'stage1-vae':
