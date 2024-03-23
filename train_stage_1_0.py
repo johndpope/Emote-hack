@@ -9,12 +9,17 @@ from omegaconf import OmegaConf
 from diffusers import  DDPMScheduler
 from diffusers import UNet2DConditionModel
 from magicanimate.models.unet_controlnet import UNet3DConditionModel
-from Net import FaceLocator,EMODataset,FramesEncodingVAE
+from Net import EMODataset,ReferenceNet
 from typing import List, Dict, Any
+from diffusers.models import AutoencoderKL
 # Other imports as necessary
 import torch.optim as optim
 import yaml
+from einops import rearrange
 
+
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # works but complicated 
 def gpu_padded_collate(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
@@ -48,6 +53,33 @@ def gpu_padded_collate(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
 
     return {'images': images_tensor}
 
+def images2latents(images, vae, dtype):
+    """
+    Encodes images to latent space using the provided VAE model.
+
+    Args:
+        images (torch.Tensor): Tensor of shape (batch_size, num_frames, channels, height, width) or (channels, height, width).
+        vae (AutoencoderKL): Pre-trained VAE model.
+        dtype (torch.dtype): Target data type for the latent tensors.
+
+    Returns:
+        torch.Tensor: Latent representations of the input images, reshaped as appropriate for conv2d input.
+    """
+    # Check if the input tensor has 4 or 5 dimensions and adjust accordingly
+    if images.ndim == 5:
+        # Combine batch and frames dimensions for processing
+        images = images.view(-1, *images.shape[2:])
+    
+    # Encode images to latent space and apply scaling factor
+    latents = vae.encode(images.to(dtype=dtype)).latent_dist.sample()
+    latents = latents * 0.18215
+
+    # Ensure the output is 4D (batched input for conv2d)
+    if latents.ndim == 5:
+        latents = latents.view(-1, *latents.shape[2:])
+
+    return latents.to(dtype=dtype)
+
 
 def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cfg):
     model.train()
@@ -64,46 +96,65 @@ def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cf
 
     for epoch in range(num_epochs):
         running_loss = 0.0
+        signal_to_noise_ratios = []
 
         for batch in data_loader:
             video_frames = batch['images'].to(device)
             
             for i in range(1, video_frames.size(0)):
-                if i < cfg.data.n_motion_frames: # jump to the third frame - so we can get previous 2 frames
+                if i < cfg.data.n_motion_frames:  # jump to the third frame - so we can get previous 2 frames
                     continue
 
                 reference_image = video_frames[i].unsqueeze(0)  # Add batch dimension
-                motion_frames = video_frames[max(0, i - cfg.data.n_motion_frames):i] # add the 2 frames
+                motion_frames = video_frames[max(0, i - cfg.data.n_motion_frames):i]  # add the 2 frames
+
+                # Ensure the reference_image has the correct dimensions [1, C, H, W]
+                assert reference_image.ndim == 4 and reference_image.size(0) == 1, "Reference image should have shape [1, C, H, W]"
+
+                # Ensure motion_frames have the correct dimensions [N, C, H, W]
+                assert motion_frames.ndim == 4, "Motion frames should have shape [N, C, H, W]"
+
+
+                # Concatenate the reference image with the motion frames
+                concatenated_frames = torch.cat([reference_image, motion_frames], dim=0)
+
+                # Convert the concatenated frames to latents
+                latents = images2latents(concatenated_frames, dtype=model.dtype, vae=model.vae)
 
                 # Sample a random timestep for each image
-                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (reference_image.shape[0],), device=reference_image.device)
+                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (latents.shape[0],), device=latents.device)
                 
-                # Add noise to the reference image
-                noisy_reference_image = noise_scheduler.add_noise(reference_image, torch.randn_like(reference_image), timesteps)
+                # Add noise to the latents
+                noisy_latents = noise_scheduler.add_noise(latents, torch.randn_like(latents), timesteps)
 
                 optimizer.zero_grad()
 
-                # Prepare input for the model
-                encoder_hidden_states = model.reference_unet.encode_hidden_state(reference_image, timesteps)
-
+ 
                 # Forward pass, ensure all required arguments are passed
-                recon_frames = model(noisy_reference_image, motion_frames, timestep=timesteps, encoder_hidden_states=encoder_hidden_states)
+                recon_frames = model(noisy_latents, timestep=timesteps)
 
                 # Calculate loss
-                loss = criterion(recon_frames, reference_image)
+                loss = criterion(recon_frames, latents)
                 loss.backward()
                 optimizer.step()
 
                 running_loss += loss.item()
 
+                # Calculate signal-to-noise ratio
+                signal_power = torch.mean(latents ** 2)
+                noise_power = torch.mean((latents - recon_frames) ** 2)
+                snr = 10 * torch.log10(signal_power / noise_power)
+                signal_to_noise_ratios.append(snr.item())
+
         epoch_loss = running_loss / len(data_loader)
-        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}')
+        avg_snr = sum(signal_to_noise_ratios) / len(signal_to_noise_ratios)
+        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}, SNR: {avg_snr:.2f} dB')
 
     return model
 
 
-# BACKBONE ~ MagicAnimate class
-# Stage 1: Train the VAE (FramesEncodingVAE) with the Backbone Network and FaceLocator.
+
+# Stage 1: Train the Referencenet
 def main(cfg: OmegaConf) -> None:
     transform = transforms.Compose([
         transforms.Resize((cfg.data.train_height, cfg.data.train_width)),
@@ -148,19 +199,21 @@ def main(cfg: OmegaConf) -> None:
     
     inference_config = OmegaConf.load("configs/inference.yaml")
         
-    denoising_unet = UNet3DConditionModel.from_pretrained_2d('/media/2TB/ani/animate-anyone/pretrained_models/sd-image-variations-diffusers', subfolder="unet", unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs)).cuda()
+    denoising_unet = UNet3DConditionModel.from_pretrained_2d(
+        '/media/2TB/ani/animate-anyone/pretrained_models/sd-image-variations-diffusers', 
+         unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs),
+       subfolder="unet")
        
-
-    # denoising_unet = UNet3DConditionModel.from_pretrained(
-    #     '/media/2TB/Emote-hack/pretrained_models/StableDiffusion', 
-    #     subfolder='unet', torch_dtype=weight_dtype, device=device)
+    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse")
 
 
-    model = FramesEncodingVAE(
+    model = ReferenceNet(
         config=cfg,
         reference_unet=reference_unet,
-        denoising_unet=denoising_unet
-    ).to(device)
+        denoising_unet=denoising_unet,
+        vae=vae,
+        dtype=weight_dtype
+    ).to(dtype=weight_dtype, device=device)
     criterion = nn.MSELoss()  # Use MSE loss for VAE reconstruction
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 

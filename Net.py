@@ -40,31 +40,36 @@ os.environ["OPENCV_LOG_LEVEL"]="FATAL"
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # https://github.com/johndpope/Emote-hack/issues/25
-class FramesEncodingVAE(nn.Module):
-    def __init__(self, config,reference_unet,denoising_unet):
-        super(FramesEncodingVAE, self).__init__()
-
+class ReferenceNet(nn.Module):
+    def __init__(self, config, reference_unet, denoising_unet, vae, dtype):
+        super(ReferenceNet, self).__init__()
         self.reference_unet = reference_unet
         self.denoising_unet = denoising_unet
-      
+        self.vae = vae
+        self.dtype = dtype
 
-    def forward(self, reference_image, motion_frames, timestep, encoder_hidden_states):
-        reference_latent = self.reference_unet(reference_image, timestep=timestep, encoder_hidden_states=encoder_hidden_states)
-        motion_latents = self.reference_unet(motion_frames, timestep=timestep, encoder_hidden_states=encoder_hidden_states)
+    def forward(self, vae_latents, timestep):
+        # Ensure timestep is either a single value or a 1D tensor with the same length as the batch size
+        assert timestep.ndim in [0, 1], "Timestep should be a single value or a 1D tensor"
+        if timestep.ndim == 1:
+            assert timestep.size(0) == vae_latents.size(0), "Timestep length should match the batch size"
 
-        reference_latent = reference_latent * 0.18215
-        motion_latents = motion_latents * 0.18215
+        # Pass vae_latents through the reference_unet to get unet_latents
+        with torch.no_grad():
+            unet_latents = self.reference_unet(vae_latents, timestep=timestep, encoder_hidden_states=None).sample
 
-        combined_latents = torch.cat([reference_latent, motion_latents], dim=1)
-        reconstructed_frames = self.denoising_unet(combined_latents, timestep=timestep, encoder_hidden_states=encoder_hidden_states)
-        
+        # Scale the latent vectors (optional, depends on the VAE scaling factor)
+        scaled_unet_latent = unet_latents * 0.18215
+
+        # Pass the combined latents through the denoising_unet
+        reconstructed_frames = self.denoising_unet(scaled_unet_latent, timestep=timestep, encoder_hidden_states=None)
+
         return reconstructed_frames
 
-    def vae_loss(self, recon_frames, reference_image, motion_frames):
-        # Compute VAE loss (You might need to define how to calculate this based on your model's specifics)
-        # This is a placeholder for loss calculation. You need to replace it with your actual loss computation method.
-        loss = nn.MSELoss()(recon_frames, torch.cat([reference_image, motion_frames], dim=1))
-        return loss
+    def vae_loss(self, recon_frames, vae_latents):
+        # Compute VAE loss using the VAE's loss function
+        loss = self.denoising_unet.loss_function(recon_frames, vae_latents, dim=1)
+        return loss["loss"]
 
 
 class DownsampleBlock(nn.Module):
@@ -99,68 +104,68 @@ class UpsampleBlock(nn.Module):
     
 
 
-class ReferenceNet(nn.Module):
-    def __init__(self, vae_model, speed_encoder, config, latent_channels):
-        super(ReferenceNet, self).__init__()
-        assert isinstance(vae_model, AutoencoderKL), "vae_model must be an instance of AutoencoderKL"
-        assert isinstance(speed_encoder, SpeedEncoder), "speed_encoder must be an instance of SpeedEncoder"
+# class ReferenceNet(nn.Module):
+#     def __init__(self, vae_model, speed_encoder, config, latent_channels):
+#         super(ReferenceNet, self).__init__()
+#         assert isinstance(vae_model, AutoencoderKL), "vae_model must be an instance of AutoencoderKL"
+#         assert isinstance(speed_encoder, SpeedEncoder), "speed_encoder must be an instance of SpeedEncoder"
 
-        # Define the number of input channels and the scaling factor for feature channels
-        num_channels = latent_channels  # Use the number of latent channels instead of 3
-        # block_out_channels = config.reference_unet_config.block_out_channels
-        feature_scale = 64  # Example scaling factor
+#         # Define the number of input channels and the scaling factor for feature channels
+#         num_channels = latent_channels  # Use the number of latent channels instead of 3
+#         # block_out_channels = config.reference_unet_config.block_out_channels
+#         feature_scale = 64  # Example scaling factor
    
 
  
         
-        cfg = config.reference_unet_config
-        # Initialize the components
-        self.vae = vae_model
-        self.speed_encoder = speed_encoder
+#         cfg = config.reference_unet_config
+#         # Initialize the components
+#         self.vae = vae_model
+#         self.speed_encoder = speed_encoder
 
-         # Downsample and Upsample Blocks
-        self.down1 = DownsampleBlock(num_channels, feature_scale)
-        self.down2 = DownsampleBlock(feature_scale, feature_scale * 2)
-        self.down3 = DownsampleBlock(feature_scale * 2, feature_scale * 4)
-        self.up1 = UpsampleBlock(feature_scale * 4, feature_scale * 2)
-        self.up2 = UpsampleBlock(feature_scale * 2, feature_scale)
+#          # Downsample and Upsample Blocks
+#         self.down1 = DownsampleBlock(num_channels, feature_scale)
+#         self.down2 = DownsampleBlock(feature_scale, feature_scale * 2)
+#         self.down3 = DownsampleBlock(feature_scale * 2, feature_scale * 4)
+#         self.up1 = UpsampleBlock(feature_scale * 4, feature_scale * 2)
+#         self.up2 = UpsampleBlock(feature_scale * 2, feature_scale)
 
-        # Final convolution to adjust the number of output channels
-        self.final_conv = nn.Conv2d(feature_scale, num_channels, kernel_size=1)
-    def forward(self, reference_latents, motion_latents, head_rotation_speed):
-        print("	🤪 head_rotation_speed:",head_rotation_speed)
+#         # Final convolution to adjust the number of output channels
+#         self.final_conv = nn.Conv2d(feature_scale, num_channels, kernel_size=1)
+#     def forward(self, reference_latents, motion_latents, head_rotation_speed):
+#         print("	🤪 head_rotation_speed:",head_rotation_speed)
         
-        assert reference_latents.ndim == 4, "reference_latents must be a 4D tensor"
-        assert motion_latents.ndim == 4, "motion_latents must be a 4D tensor"
-        assert head_rotation_speed.ndim == 1, "head_rotation_speed must be a 1D tensor"
-        # Downsample reference latents
-        ref_x1 = self.down1(reference_latents)
-        ref_x2 = self.down2(ref_x1)
-        ref_x3 = self.down3(ref_x2)
+#         assert reference_latents.ndim == 4, "reference_latents must be a 4D tensor"
+#         assert motion_latents.ndim == 4, "motion_latents must be a 4D tensor"
+#         assert head_rotation_speed.ndim == 1, "head_rotation_speed must be a 1D tensor"
+#         # Downsample reference latents
+#         ref_x1 = self.down1(reference_latents)
+#         ref_x2 = self.down2(ref_x1)
+#         ref_x3 = self.down3(ref_x2)
 
-        # Pass motion latents through similar downsampling blocks
-        motion_x1 = self.down1(motion_latents)
-        motion_x2 = self.down2(motion_x1)
-        motion_x3 = self.down3(motion_x2)
+#         # Pass motion latents through similar downsampling blocks
+#         motion_x1 = self.down1(motion_latents)
+#         motion_x2 = self.down2(motion_x1)
+#         motion_x3 = self.down3(motion_x2)
 
-        # Upsample and integrate features from motion latents
-        x = self.up1(ref_x3, motion_x3)
-        x = self.up2(x, ref_x2)
+#         # Upsample and integrate features from motion latents
+#         x = self.up1(ref_x3, motion_x3)
+#         x = self.up2(x, ref_x2)
 
-        # Final convolution to adjust the number of output channels
-        out = self.final_conv(x)
+#         # Final convolution to adjust the number of output channels
+#         out = self.final_conv(x)
 
-        # Pass the output through 
-        reference_features = self.reference_unet(out)
+#         # Pass the output through 
+#         reference_features = self.reference_unet(out)
 
-        # Encode speed and expand its dimensions to concatenate with reference features
-        speed_embedding = self.speed_encoder(head_rotation_speed)
-        speed_embedding = speed_embedding.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, reference_features.size(2), reference_features.size(3))
+#         # Encode speed and expand its dimensions to concatenate with reference features
+#         speed_embedding = self.speed_encoder(head_rotation_speed)
+#         speed_embedding = speed_embedding.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, reference_features.size(2), reference_features.size(3))
 
-        # Combine reference features and speed embedding
-        combined_features = torch.cat([reference_features, speed_embedding], dim=1)
+#         # Combine reference features and speed embedding
+#         combined_features = torch.cat([reference_features, speed_embedding], dim=1)
 
-        return combined_features
+#         return combined_features
 
 
 # The Python code provided implements a SpeedEncoder as outlined in the whitepaper,

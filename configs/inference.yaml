@@ -1,7 +1,7 @@
 unet_additional_kwargs:
   unet_use_cross_frame_attention: false
   unet_use_temporal_attention: false
-  use_motion_module: true
+  use_motion_module: false
   motion_module_resolutions:
   - 1
   - 2
