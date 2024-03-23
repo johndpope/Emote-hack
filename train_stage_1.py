@@ -16,7 +16,6 @@ import yaml
 
 # works but complicated 
 def gpu_padded_collate(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-
     assert isinstance(batch, list), "Batch should be a list"
 
     # Unpack and flatten the images and speeds from the batch
@@ -27,32 +26,26 @@ def gpu_padded_collate(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
         all_images.extend(item['images'])  # Flatten the list of lists into a single list
         all_speeds.extend(item['speeds'])  # Flatten the list of lists into a single list
 
-
     assert all(isinstance(img, torch.Tensor) for img in all_images), "All images must be PyTorch tensors"
-    assert all(isinstance(mask, torch.Tensor) for mask in all_speeds), "All speeds must be PyTorch tensors"
-
+    assert all(isinstance(speed, torch.Tensor) for speed in all_speeds), "All speeds must be PyTorch tensors"
 
     # Determine the maximum dimensions
     assert all(img.ndim == 3 for img in all_images), "All images must be 3D tensors"
     max_height = max(img.shape[1] for img in all_images)
     max_width = max(img.shape[2] for img in all_images)
 
-    # Pad the images and speeds
+    # Pad the images
     padded_images = [F.pad(img, (0, max_width - img.shape[2], 0, max_height - img.shape[1])) for img in all_images]
-    padded_speeds = [F.pad(mask, (0, max_width - mask.shape[2], 0, max_height - mask.shape[1])) for mask in all_speeds]
-
 
     # Stack the padded images and speeds
     images_tensor = torch.stack(padded_images)
-    speeds_tensor = torch.stack(padded_speeds)
+    speeds_tensor = torch.stack(all_speeds)
 
     # Assert the correct shape of the output tensors
     assert images_tensor.ndim == 4, "Images tensor should be 4D"
-    assert speeds_tensor.ndim == 4, "speeds tensor should be 4D"
-    
+    assert speeds_tensor.ndim == 2, "Speeds tensor should be 2D"
+
     return {'images': images_tensor, 'speeds': speeds_tensor}
-
-
 
 
 def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cfg):
@@ -94,10 +87,7 @@ def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cf
 
 # BACKBONE ~ MagicAnimate class
 # Stage 1: Train the VAE (FramesEncodingVAE) with the Backbone Network and FaceLocator.
-
 def main(cfg: OmegaConf) -> None:
-
-
     transform = transforms.Compose([
         transforms.Resize((cfg.data.train_height, cfg.data.train_width)),
         transforms.ToTensor(),
@@ -114,30 +104,25 @@ def main(cfg: OmegaConf) -> None:
         data_dir='./images_folder',
         video_dir='/home/oem/Downloads/CelebV-HQ/celebvhq/35666',
         json_file='./data/overfit.json',
-        #json_file='./data/celebvhq_info.json',
         stage='stage1-vae',
         transform=transform
     )
-
-
 
     # Configuration and Hyperparameters
     num_epochs = 10  # Example number of epochs
     learning_rate = 1e-3  # Example learning rate
 
     # Initialize Dataset and DataLoader
-    # Assuming EMODataset is properly defined and initialized as `dataset`
     data_loader = DataLoader(dataset, batch_size=cfg.training.batch_size, shuffle=True, num_workers=cfg.training.num_workers, collate_fn=gpu_padded_collate)
 
     # Model, Criterion, Optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
-  # Load the YAML configuration file
+    # Load the YAML configuration file
     with open('./configs/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
 
-    v2 = False # SD 2.1
+    v2 = False  # SD 2.1
     # Access the reference_unet_config based on args.v2
     if v2:
         unet_config = config['reference_unet_config']['v2']
@@ -146,29 +131,31 @@ def main(cfg: OmegaConf) -> None:
         # SD 1.5
         unet_config = config['reference_unet_config']['default']
         denoise_unet_config = config['denoising_unet_config']['default']
-  
-        
+
     emo_config = {
         "reference_unet_config": unet_config,
         "denoising_unet_config": denoise_unet_config,
         "num_speed_buckets": cfg.num_speed_buckets,
         "speed_embedding_dim": cfg.speed_embedding_dim,
     }
-    
 
-    model = FramesEncodingVAE(input_channels=3, latent_dim=256, img_size=cfg.data.train_height, reference_net=emo_config.reference_unet_config).to(device)
+    print("emo_config:", emo_config)
+
+    model = FramesEncodingVAE(
+        img_size=cfg.data.train_height,
+        config=emo_config,
+        num_speed_buckets=cfg.num_speed_buckets,
+        speed_embedding_dim=cfg.speed_embedding_dim
+    ).to(device)
     criterion = nn.MSELoss()  # Use MSE loss for VAE reconstruction
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-
     # Train the model
-    trained_model = train_model(model, data_loader, optimizer, criterion, device, num_epochs,cfg)
-
+    trained_model = train_model(model, data_loader, optimizer, criterion, device, num_epochs, cfg)
 
     # Save the model
     torch.save(trained_model.state_dict(), 'frames_encoding_vae_model.pth')
     print("Model saved to frames_encoding_vae_model.pth")
-
 
 if __name__ == "__main__":
     config = OmegaConf.load("./configs/training/stage1.yaml")

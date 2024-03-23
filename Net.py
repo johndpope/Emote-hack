@@ -38,25 +38,22 @@ os.environ["OPENCV_LOG_LEVEL"]="FATAL"
 # JAM EVERYTHING INTO 1 CLASS - so Claude 3 / Chatgpt can analyze at once
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
 class FramesEncodingVAE(nn.Module):
-    """
-    FramesEncodingVAE combines the encoding of reference and motion frames with additional components
-    such as ReferenceNet and SpeedEncoder as depicted in the Frames Encoding part of the diagram.
-    """
-    def __init__(self, latent_dim, img_size, reference_net):
+    def __init__(self, img_size, config, num_speed_buckets, speed_embedding_dim):
         super(FramesEncodingVAE, self).__init__()
         self.vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse")
         self.vae.to(device)  # Move the model to the appropriate device (e.g., GPU)
-        self.latent_dim = latent_dim
         self.img_size = img_size
-        self.reference_net = reference_net
-
-        # SpeedEncoder can be implemented as needed.
-        num_speed_buckets = 9
-        speed_embedding_dim = 64
 
         self.speed_encoder = SpeedEncoder(num_speed_buckets, speed_embedding_dim)
+        
+        # Create a dummy input tensor to infer the number of latent channels
+        dummy_input = torch.randn(1, 3, img_size, img_size).to(device)  # Move the dummy input to the same device as the VAE
+        with torch.no_grad():
+            latent_vector = self.vae.encode(dummy_input).latent_dist.sample()
+        latent_channels = latent_vector.shape[1]  # Get the number of latent channels from the second dimension
+        
+        self.reference_net = ReferenceNet(self.vae, self.speed_encoder, config, latent_channels)
 
     def forward(self, reference_image, motion_frames, speed_value):
         # Encode reference and motion frames
@@ -68,7 +65,7 @@ class FramesEncodingVAE(nn.Module):
         motion_latents = motion_latents * 0.18215
 
         # Process reference features with ReferenceNet
-        reference_features = self.reference_net(reference_latents)
+        reference_features = self.reference_net(reference_latents, motion_latents, speed_value)
 
         # Embed speed value
         speed_embedding = self.speed_encoder(speed_value)
@@ -85,8 +82,6 @@ class FramesEncodingVAE(nn.Module):
         # Compute VAE loss using the VAE's loss function
         loss = self.vae.loss_function(recon_frames, torch.cat([reference_image, motion_frames], dim=1))
         return loss["loss"]
-
-
 
 
     
@@ -121,14 +116,14 @@ class UpsampleBlock(nn.Module):
         return x
 
 class ReferenceNet(nn.Module):
-    def __init__(self, vae_model,  speed_encoder,config):
+    def __init__(self, vae_model, speed_encoder, config, latent_channels):
         super(ReferenceNet, self).__init__()
         # Define the number of input channels and the scaling factor for feature channels
-        num_channels = 3  # For RGB images
+        num_channels = latent_channels  # Use the number of latent channels instead of 3
         feature_scale = 64  # Example scaling factor
 
         # Reference UNet (ReferenceNet)
-        self.reference_unet = UNet2DConditionModel(**config.reference_unet_config)
+        self.reference_unet = UNet2DConditionModel(**config["reference_unet_config"])
         # Initialize the components
         self.vae = vae_model
 
@@ -143,20 +138,18 @@ class ReferenceNet(nn.Module):
 
         # Final convolution to adjust the number of output channels
         self.final_conv = nn.Conv2d(feature_scale, num_channels, kernel_size=1)
-
-    def forward(self, reference_image, motion_frames, head_rotation_speed):
-        # Downsample reference image
-        ref_x1 = self.down1(reference_image)
+    def forward(self, reference_latents, motion_latents, head_rotation_speed):
+        # Downsample reference latents
+        ref_x1 = self.down1(reference_latents)
         ref_x2 = self.down2(ref_x1)
         ref_x3 = self.down3(ref_x2)
 
-        # Pass motion frames through similar downsampling blocks
-        motion_x = motion_frames.view(-1, motion_frames.size(2), motion_frames.size(3), motion_frames.size(4))
-        motion_x1 = self.down1(motion_x)
+        # Pass motion latents through similar downsampling blocks
+        motion_x1 = self.down1(motion_latents)
         motion_x2 = self.down2(motion_x1)
         motion_x3 = self.down3(motion_x2)
 
-        # Upsample and integrate features from motion frames
+        # Upsample and integrate features from motion latents
         x = self.up1(ref_x3, motion_x3)
         x = self.up2(x, ref_x2)
 
@@ -1172,13 +1165,11 @@ class EMODataset(Dataset):
             video_reader = VideoReader(mp4_path, ctx=self.ctx)
             video_length = len(video_reader)
             
-            transform_to_tensor = ToTensor()
             # Read frames and generate masks
             vid_pil_image_list = []
-            mask_tensor_list = []
-            face_locator = FaceHelper()
-        
             speeds_tensor_list = []
+            face_locator = FaceHelper()
+            
             for frame_idx in range(video_length):
                 # Read frame and convert to PIL Image
                 frame = Image.fromarray(video_reader[frame_idx].numpy())
@@ -1189,27 +1180,22 @@ class EMODataset(Dataset):
                 vid_pil_image_list.append(pixel_values_frame)
 
                 # Calculate head rotation speeds at the current frame (previous 1 frames)
-                head_rotation_speeds = face_locator.get_head_pose_velocities_at_frame(video_reader, frame_idx,1)
+                head_rotation_speeds = face_locator.get_head_pose_velocities_at_frame(video_reader, frame_idx, 1)
 
                 # Check if head rotation speeds are successfully calculated
                 if head_rotation_speeds:
-                    head_tensor = transform_to_tensor(head_rotation_speeds)
+                    head_tensor = torch.tensor(head_rotation_speeds[0], dtype=torch.float32)  # Convert tuple to tensor
                     speeds_tensor_list.append(head_tensor)
                 else:
                     # Provide a default value if no speeds were calculated
-                    #expected_speed_vector_length = 3
-                    #default_speeds = torch.zeros(1, expected_speed_vector_length)  # Shape [1, 3]
-                    default_speeds = (0.0, 0.0, 0.0)  # List containing one tuple with three elements
-                    head_tensor = transform_to_tensor(default_speeds)
-                    speeds_tensor_list.append(head_tensor)
+                    default_speeds = torch.zeros(3, dtype=torch.float32)  # Create a tensor of shape [3]
+                    speeds_tensor_list.append(default_speeds)
 
-            
             # Convert list of lists to a tensor
-   
             sample = {
                 "video_id": video_id,
                 "images": vid_pil_image_list,
-                "motion_frames" : [],
+                "motion_frames": [],
                 "speeds": speeds_tensor_list
             }
 

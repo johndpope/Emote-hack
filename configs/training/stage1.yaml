@@ -11,6 +11,8 @@ training:
   learning_rate: 1.0e-5
   num_epochs: 2
   use_gpu_video_tensor: True
+  prev_frames: 2  # Add this line to specify the number of previous frames to consider
+
 solver:
   gradient_accumulation_steps: 1
   mixed_precision: 'fp16'
@@ -61,3 +63,5 @@ checkpointing_steps: 1000
 save_model_epoch_interval: 5
 exp_name: 'stage1'
 output_dir: './exp_output'  
+num_speed_buckets: 9
+speed_embedding_dim: 64 
