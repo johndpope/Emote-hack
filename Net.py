@@ -41,37 +41,30 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # https://github.com/johndpope/Emote-hack/issues/25
 class FramesEncodingVAE(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config,reference_unet,denoising_unet):
         super(FramesEncodingVAE, self).__init__()
-        self.vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse")
-        self.vae.to(device)
-        self.img_size = config.data.train_height
 
-    def forward(self, reference_image, motion_frames):
-        # Assert that reference_image is a single image
-        assert reference_image.ndim == 4 and reference_image.size(0) == 1, "reference_image should be a single image"
+        self.reference_unet = reference_unet
+        self.denoising_unet = denoising_unet
+      
 
-        # Encode reference and motion frames
-        reference_latents = self.vae.encode(reference_image).latent_dist.sample()
-        motion_latents = self.vae.encode(motion_frames).latent_dist.sample()
+    def forward(self, reference_image, motion_frames, timestep, encoder_hidden_states):
+        reference_latent = self.reference_unet(reference_image, timestep=timestep, encoder_hidden_states=encoder_hidden_states)
+        motion_latents = self.reference_unet(motion_frames, timestep=timestep, encoder_hidden_states=encoder_hidden_states)
 
-        # Scale the latent vectors (optional, depends on the VAE scaling factor)
-        reference_latents = reference_latents * 0.18215
+        reference_latent = reference_latent * 0.18215
         motion_latents = motion_latents * 0.18215
 
-        # Combine the reference and motion latents
-        combined_latents = torch.cat([reference_latents, motion_latents], dim=1)
-
-        # Decode the combined latents
-        reconstructed_frames = self.vae.decode(combined_latents).sample
-
+        combined_latents = torch.cat([reference_latent, motion_latents], dim=1)
+        reconstructed_frames = self.denoising_unet(combined_latents, timestep=timestep, encoder_hidden_states=encoder_hidden_states)
+        
         return reconstructed_frames
 
     def vae_loss(self, recon_frames, reference_image, motion_frames):
-        # Compute VAE loss using the VAE's loss function
-        loss = self.vae.loss_function(recon_frames, torch.cat([reference_image, motion_frames], dim=1))
-        return loss["loss"]
-    
+        # Compute VAE loss (You might need to define how to calculate this based on your model's specifics)
+        # This is a placeholder for loss calculation. You need to replace it with your actual loss computation method.
+        loss = nn.MSELoss()(recon_frames, torch.cat([reference_image, motion_frames], dim=1))
+        return loss
 
 
 class DownsampleBlock(nn.Module):
@@ -116,16 +109,9 @@ class ReferenceNet(nn.Module):
         num_channels = latent_channels  # Use the number of latent channels instead of 3
         # block_out_channels = config.reference_unet_config.block_out_channels
         feature_scale = 64  # Example scaling factor
-        if config.weight_dtype == "fp16":
-            weight_dtype = torch.float16
-        else:
-            weight_dtype = torch.float32
+   
 
-        # Reference UNet (ReferenceNet)
-        self.reference_unet = UNet2DConditionModel.from_pretrained(
-           '/media/2TB/Emote-hack/pretrained_models/StableDiffusion',
-            subfolder="unet",
-        ).to(dtype=weight_dtype, device=device)
+ 
         
         cfg = config.reference_unet_config
         # Initialize the components

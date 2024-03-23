@@ -6,7 +6,9 @@ import torch.nn.functional as F
 import torchvision.transforms as transforms
 from torch.utils.data  import DataLoader
 from omegaconf import OmegaConf
-
+from diffusers import  DDPMScheduler
+from diffusers import UNet2DConditionModel
+from magicanimate.models.unet_controlnet import UNet3DConditionModel
 from Net import FaceLocator,EMODataset,FramesEncodingVAE
 from typing import List, Dict, Any
 # Other imports as necessary
@@ -20,7 +22,7 @@ def gpu_padded_collate(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
 
     # Unpack and flatten the images, motion frames, and speeds from the batch
     all_images = []
-    all_motion_frames = []
+  
 
     for item in batch:
         all_images.extend(item['images'])
@@ -44,48 +46,61 @@ def gpu_padded_collate(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     # Assert the correct shape of the output tensors
     assert images_tensor.ndim == 4, "Images tensor should be 4D"
 
-
-
     return {'images': images_tensor}
+
 
 def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cfg):
     model.train()
+
+    # Create the noise scheduler
+    noise_scheduler = DDPMScheduler(
+        num_train_timesteps=cfg.noise_scheduler_kwargs.num_train_timesteps,
+        beta_start=cfg.noise_scheduler_kwargs.beta_start,
+        beta_end=cfg.noise_scheduler_kwargs.beta_end,
+        beta_schedule=cfg.noise_scheduler_kwargs.beta_schedule,
+        steps_offset=cfg.noise_scheduler_kwargs.steps_offset,
+        clip_sample=cfg.noise_scheduler_kwargs.clip_sample,
+    )
 
     for epoch in range(num_epochs):
         running_loss = 0.0
 
         for batch in data_loader:
             video_frames = batch['images'].to(device)
-             # Process frames one by one, using previous frames as motion frames
+            
             for i in range(1, video_frames.size(0)):
-                reference_image = video_frames[i].unsqueeze(0)  # Add batch dimension
-                motion_frames = video_frames[max(0, i-cfg.data.n_motion_frames):i].unsqueeze(0)  # Add batch dimension
+                if i < cfg.data.n_motion_frames: # jump to the third frame - so we can get previous 2 frames
+                    continue
 
-                # Assert that reference_image and motion_frames have the expected shapes
-                assert reference_image.size(0) == 1, "reference_image should have a batch size of 1"
-                assert motion_frames.size(0) == 1, "motion_frames should have a batch size of 1"
-                assert reference_image.size(1) == motion_frames.size(1), "reference_image and motion_frames should have the same number of channels"
+                reference_image = video_frames[i].unsqueeze(0)  # Add batch dimension
+                motion_frames = video_frames[max(0, i - cfg.data.n_motion_frames):i] # add the 2 frames
+
+                # Sample a random timestep for each image
+                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (reference_image.shape[0],), device=reference_image.device)
+                
+                # Add noise to the reference image
+                noisy_reference_image = noise_scheduler.add_noise(reference_image, torch.randn_like(reference_image), timesteps)
 
                 optimizer.zero_grad()
 
-                # Forward pass
-                recon_frames = model(reference_image, motion_frames)
+                # Prepare input for the model
+                encoder_hidden_states = model.reference_unet.encode_hidden_state(reference_image, timesteps)
 
-                # Assert that recon_frames has the expected shape
-                assert recon_frames.size(0) == 1, "recon_frames should have a batch size of 1"
-                assert recon_frames.size(1) == reference_image.size(1) + motion_frames.size(1), "recon_frames should have the same number of channels as the concatenated reference_image and motion_frames"
+                # Forward pass, ensure all required arguments are passed
+                recon_frames = model(noisy_reference_image, motion_frames, timestep=timesteps, encoder_hidden_states=encoder_hidden_states)
 
-                loss = criterion(recon_frames, torch.cat([reference_image, motion_frames], dim=1))
+                # Calculate loss
+                loss = criterion(recon_frames, reference_image)
                 loss.backward()
                 optimizer.step()
 
                 running_loss += loss.item()
 
-
         epoch_loss = running_loss / len(data_loader)
         print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}')
 
     return model
+
 
 # BACKBONE ~ MagicAnimate class
 # Stage 1: Train the VAE (FramesEncodingVAE) with the Backbone Network and FaceLocator.
@@ -120,11 +135,31 @@ def main(cfg: OmegaConf) -> None:
     # Model, Criterion, Optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    # Reference UNet (ReferenceNet)
+    if cfg.weight_dtype == "fp16":
+        weight_dtype = torch.float16
+    else:
+        weight_dtype = torch.float32
 
- 
+    reference_unet = UNet2DConditionModel.from_pretrained(
+        '/media/2TB/Emote-hack/pretrained_models/StableDiffusion',
+        subfolder="unet",
+    ).to(dtype=weight_dtype, device=device)
+    
+    inference_config = OmegaConf.load("configs/inference.yaml")
+        
+    denoising_unet = UNet3DConditionModel.from_pretrained_2d('/media/2TB/ani/animate-anyone/pretrained_models/sd-image-variations-diffusers', subfolder="unet", unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs)).cuda()
+       
+
+    # denoising_unet = UNet3DConditionModel.from_pretrained(
+    #     '/media/2TB/Emote-hack/pretrained_models/StableDiffusion', 
+    #     subfolder='unet', torch_dtype=weight_dtype, device=device)
+
 
     model = FramesEncodingVAE(
-        config=cfg
+        config=cfg,
+        reference_unet=reference_unet,
+        denoising_unet=denoising_unet
     ).to(device)
     criterion = nn.MSELoss()  # Use MSE loss for VAE reconstruction
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
