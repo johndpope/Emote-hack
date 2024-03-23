@@ -80,7 +80,6 @@ def images2latents(images, vae, dtype):
 
     return latents.to(dtype=dtype)
 
-
 def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cfg):
     model.train()
 
@@ -114,35 +113,33 @@ def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cf
                 # Ensure motion_frames have the correct dimensions [N, C, H, W]
                 assert motion_frames.ndim == 4, "Motion frames should have shape [N, C, H, W]"
 
+                # Pre-extract motion features from motion frames
+                motion_features = model.pre_extract_motion_features(motion_frames)
 
-                # Concatenate the reference image with the motion frames
-                concatenated_frames = torch.cat([reference_image, motion_frames], dim=0)
-
-                # Convert the concatenated frames to latents
-                latents = images2latents(concatenated_frames, dtype=model.dtype, vae=model.vae)
+                # Convert the reference image to latents
+                reference_latent = images2latents(reference_image, dtype=model.dtype, vae=model.vae)
 
                 # Sample a random timestep for each image
-                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (latents.shape[0],), device=latents.device)
+                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (reference_latent.shape[0],), device=reference_latent.device)
                 
                 # Add noise to the latents
-                noisy_latents = noise_scheduler.add_noise(latents, torch.randn_like(latents), timesteps)
+                noisy_latents = noise_scheduler.add_noise(reference_latent, torch.randn_like(reference_latent), timesteps)
 
                 optimizer.zero_grad()
 
- 
                 # Forward pass, ensure all required arguments are passed
-                recon_frames = model(noisy_latents, timestep=timesteps)
+                recon_frames = model(reference_image, motion_features, timestep=timesteps)
 
                 # Calculate loss
-                loss = criterion(recon_frames, latents)
+                loss = criterion(recon_frames, reference_latent)
                 loss.backward()
                 optimizer.step()
 
                 running_loss += loss.item()
 
                 # Calculate signal-to-noise ratio
-                signal_power = torch.mean(latents ** 2)
-                noise_power = torch.mean((latents - recon_frames) ** 2)
+                signal_power = torch.mean(reference_latent ** 2)
+                noise_power = torch.mean((reference_latent - recon_frames) ** 2)
                 snr = 10 * torch.log10(signal_power / noise_power)
                 signal_to_noise_ratios.append(snr.item())
 
