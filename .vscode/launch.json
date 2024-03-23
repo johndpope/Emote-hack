@@ -9,8 +9,8 @@
             "type": "debugpy",
             "request": "launch",
             // "program": "./junk/AudioAttention/train.py",
-            // "program": "./train_stage_0.py",
-            "program": "./junk/AudioAttention/inference.py",
+            "program": "./train_stage_1_0.py",
+            // "program": "./junk/AudioAttention/inference.py",
             "console": "integratedTerminal"
         }
     ]

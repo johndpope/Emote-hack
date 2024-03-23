@@ -5,6 +5,7 @@ data:
   sample_margin: 30  
   sample_rate: 4 
   n_sample_frames: 1
+  n_motion_frames: 2
 training:
   batch_size: 2
   num_workers: 0
@@ -45,6 +46,8 @@ noise_scheduler_kwargs:
   steps_offset:        1
   clip_sample:         false
 
+
+pretrained_base_model_path: "./pretrained_weights/stable-diffusion/"
 base_model_path: './pretrained_weights/sd-image-variations-diffusers'
 vae_model_path: './pretrained_weights/sd-vae-ft-mse'
 image_encoder_path: './pretrained_weights/sd-image-variations-diffusers/image_encoder'
@@ -65,3 +68,5 @@ exp_name: 'stage1'
 output_dir: './exp_output'  
 num_speed_buckets: 9
 speed_embedding_dim: 64 
+reference_unet_config: # assign from unet-config 
+denoising_unet_config:

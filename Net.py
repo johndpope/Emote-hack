@@ -38,24 +38,19 @@ os.environ["OPENCV_LOG_LEVEL"]="FATAL"
 # JAM EVERYTHING INTO 1 CLASS - so Claude 3 / Chatgpt can analyze at once
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# https://github.com/johndpope/Emote-hack/issues/25
 class FramesEncodingVAE(nn.Module):
-    def __init__(self, img_size, config, num_speed_buckets, speed_embedding_dim):
+    def __init__(self, config):
         super(FramesEncodingVAE, self).__init__()
         self.vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse")
-        self.vae.to(device)  # Move the model to the appropriate device (e.g., GPU)
-        self.img_size = img_size
+        self.vae.to(device)
+        self.img_size = config.data.train_height
 
-        self.speed_encoder = SpeedEncoder(num_speed_buckets, speed_embedding_dim)
-        
-        # Create a dummy input tensor to infer the number of latent channels
-        dummy_input = torch.randn(1, 3, img_size, img_size).to(device)  # Move the dummy input to the same device as the VAE
-        with torch.no_grad():
-            latent_vector = self.vae.encode(dummy_input).latent_dist.sample()
-        latent_channels = latent_vector.shape[1]  # Get the number of latent channels from the second dimension
-        
-        self.reference_net = ReferenceNet(self.vae, self.speed_encoder, config, latent_channels)
+    def forward(self, reference_image, motion_frames):
+        # Assert that reference_image is a single image
+        assert reference_image.ndim == 4 and reference_image.size(0) == 1, "reference_image should be a single image"
 
-    def forward(self, reference_image, motion_frames, speed_value):
         # Encode reference and motion frames
         reference_latents = self.vae.encode(reference_image).latent_dist.sample()
         motion_latents = self.vae.encode(motion_frames).latent_dist.sample()
@@ -64,17 +59,11 @@ class FramesEncodingVAE(nn.Module):
         reference_latents = reference_latents * 0.18215
         motion_latents = motion_latents * 0.18215
 
-        # Process reference features with ReferenceNet
-        reference_features = self.reference_net(reference_latents, motion_latents, speed_value)
-     
-        # Embed speed value
-        speed_embedding = self.speed_encoder(speed_value)
+        # Combine the reference and motion latents
+        combined_latents = torch.cat([reference_latents, motion_latents], dim=1)
 
-        # Combine features
-        combined_features = torch.cat([reference_features, motion_latents, speed_embedding], dim=1)
-
-        # Decode the combined features
-        reconstructed_frames = self.vae.decode(combined_features).sample
+        # Decode the combined latents
+        reconstructed_frames = self.vae.decode(combined_latents).sample
 
         return reconstructed_frames
 
@@ -82,76 +71,82 @@ class FramesEncodingVAE(nn.Module):
         # Compute VAE loss using the VAE's loss function
         loss = self.vae.loss_function(recon_frames, torch.cat([reference_image, motion_frames], dim=1))
         return loss["loss"]
-
-
     
+
+
+class DownsampleBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(DownsampleBlock, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.relu(x)
+        x = F.max_pool2d(x, kernel_size=2, stride=2)
+        return x
+
+class UpsampleBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(UpsampleBlock, self).__init__()
+        self.up = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2)
+        self.conv = nn.Conv2d(out_channels * 2, out_channels, kernel_size=3, padding=1)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x1, x2):
+        x1 = self.up(x1)
+        x = torch.cat([x2, x1], dim=1)
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.relu(x)
+        return x
+    
+
 
 class ReferenceNet(nn.Module):
     def __init__(self, vae_model, speed_encoder, config, latent_channels):
         super(ReferenceNet, self).__init__()
+        assert isinstance(vae_model, AutoencoderKL), "vae_model must be an instance of AutoencoderKL"
+        assert isinstance(speed_encoder, SpeedEncoder), "speed_encoder must be an instance of SpeedEncoder"
+
         # Define the number of input channels and the scaling factor for feature channels
         num_channels = latent_channels  # Use the number of latent channels instead of 3
+        # block_out_channels = config.reference_unet_config.block_out_channels
         feature_scale = 64  # Example scaling factor
+        if config.weight_dtype == "fp16":
+            weight_dtype = torch.float16
+        else:
+            weight_dtype = torch.float32
 
         # Reference UNet (ReferenceNet)
-        self.reference_unet = UNet2DConditionModel(**config["reference_unet_config"])
+        self.reference_unet = UNet2DConditionModel.from_pretrained(
+           '/media/2TB/Emote-hack/pretrained_models/StableDiffusion',
+            subfolder="unet",
+        ).to(dtype=weight_dtype, device=device)
+        
+        cfg = config.reference_unet_config
         # Initialize the components
         self.vae = vae_model
         self.speed_encoder = speed_encoder
 
-          # Downsample and Upsample Blocks
-        # In the modified code, the resnet_groups parameter is adjusted based on the number of input channels (num_channels) and the feature scale (feature_scale) at each level of the DownBlock2D and UpBlock2D. The resnet_groups is set to the minimum of num_channels // 4 or feature_scale // 4 and 32, ensuring that it divides the number of channels evenly.
-        self.down1 = DownBlock2D(
-            num_layers=2,
-            in_channels=num_channels,
-            out_channels=feature_scale,
-            temb_channels=0,  # No temporal embeddings used in ReferenceNet
-            add_downsample=True,
-            resnet_groups=min(num_channels // 4, 32),  # Adjust resnet_groups based on num_channels
-        )
-        self.down2 = DownBlock2D(
-            num_layers=2,
-            in_channels=feature_scale,
-            out_channels=feature_scale * 2,
-            temb_channels=0,  # No temporal embeddings used in ReferenceNet
-            add_downsample=True,
-            resnet_groups=min(feature_scale // 4, 32),  # Adjust resnet_groups based on feature_scale
-        )
-        self.down3 = DownBlock2D(
-            num_layers=2,
-            in_channels=feature_scale * 2,
-            out_channels=feature_scale * 4,
-            temb_channels=0,  # No temporal embeddings used in ReferenceNet
-            add_downsample=True,
-            resnet_groups=min(feature_scale * 2 // 4, 32),  # Adjust resnet_groups based on feature_scale * 2
-        )
-        self.up1 = UpBlock2D(
-            num_layers=2,
-            in_channels=feature_scale * 4,
-            out_channels=feature_scale * 2,
-            prev_output_channel=feature_scale * 4,
-            temb_channels=0,  # No temporal embeddings used in ReferenceNet
-            add_upsample=True,
-            resnet_groups=min(feature_scale * 4 // 4, 32),  # Adjust resnet_groups based on feature_scale * 4
-        )
-        self.up2 = UpBlock2D(
-            num_layers=2,
-            in_channels=feature_scale * 2,
-            out_channels=feature_scale,
-            prev_output_channel=feature_scale * 2,
-            temb_channels=0,  # No temporal embeddings used in ReferenceNet
-            add_upsample=True,
-            resnet_groups=min(feature_scale * 2 // 4, 32),  # Adjust resnet_groups based on feature_scale * 2
-        )
+         # Downsample and Upsample Blocks
+        self.down1 = DownsampleBlock(num_channels, feature_scale)
+        self.down2 = DownsampleBlock(feature_scale, feature_scale * 2)
+        self.down3 = DownsampleBlock(feature_scale * 2, feature_scale * 4)
+        self.up1 = UpsampleBlock(feature_scale * 4, feature_scale * 2)
+        self.up2 = UpsampleBlock(feature_scale * 2, feature_scale)
 
         # Final convolution to adjust the number of output channels
         self.final_conv = nn.Conv2d(feature_scale, num_channels, kernel_size=1)
-
-
-        # Final convolution to adjust the number of output channels
-        self.final_conv = nn.Conv2d(feature_scale, num_channels, kernel_size=1)
-
     def forward(self, reference_latents, motion_latents, head_rotation_speed):
+        print("	🤪 head_rotation_speed:",head_rotation_speed)
+        
+        assert reference_latents.ndim == 4, "reference_latents must be a 4D tensor"
+        assert motion_latents.ndim == 4, "motion_latents must be a 4D tensor"
+        assert head_rotation_speed.ndim == 1, "head_rotation_speed must be a 1D tensor"
         # Downsample reference latents
         ref_x1 = self.down1(reference_latents)
         ref_x2 = self.down2(ref_x1)
@@ -163,13 +158,13 @@ class ReferenceNet(nn.Module):
         motion_x3 = self.down3(motion_x2)
 
         # Upsample and integrate features from motion latents
-        x = self.up1(ref_x3, (motion_x3,))
-        x = self.up2(x, (ref_x2,))
+        x = self.up1(ref_x3, motion_x3)
+        x = self.up2(x, ref_x2)
 
         # Final convolution to adjust the number of output channels
         out = self.final_conv(x)
 
-        # Pass the output through
+        # Pass the output through 
         reference_features = self.reference_unet(out)
 
         # Encode speed and expand its dimensions to concatenate with reference features
@@ -1115,6 +1110,7 @@ class EMODataset(Dataset):
 
 
     def __len__(self) -> int:
+        
         return len(self.video_ids)
 
     def augmentation(self, images, transform, state=None):
@@ -1130,6 +1126,8 @@ class EMODataset(Dataset):
     def __getitem__(self, index: int) -> Dict[str, Any]:
         video_id = self.video_ids[index]
         mp4_path = os.path.join(self.video_dir, f"{video_id}.mp4")
+
+        
 
         if  self.stage == 'stage0-facelocator':
             video_reader = VideoReader(mp4_path, ctx=self.ctx)
@@ -1173,7 +1171,28 @@ class EMODataset(Dataset):
                 "images": vid_pil_image_list,
                 "masks": mask_tensor_list,
             }
+        elif  self.stage == 'stage1-0-framesencoder': # so when can freeze this https://github.com/johndpope/Emote-hack/issues/25
+            video_reader = VideoReader(mp4_path, ctx=self.ctx)
+            video_length = len(video_reader)
+            
 
+            vid_pil_image_list = []
+         
+            
+            for frame_idx in range(video_length):
+                # Read frame and convert to PIL Image
+                frame = Image.fromarray(video_reader[frame_idx].numpy())
+
+                # Transform the frame
+                state = torch.get_rng_state()
+                pixel_values_frame = self.augmentation(frame, self.pixel_transform, state)
+                vid_pil_image_list.append(pixel_values_frame)
+
+            # Convert list of lists to a tensor
+            sample = {
+                "video_id": video_id,
+                "images": vid_pil_image_list
+            }
         elif self.stage == 'stage1-vae':
             video_reader = VideoReader(mp4_path, ctx=self.ctx)
             video_length = len(video_reader)
@@ -1297,166 +1316,3 @@ class EMODataset(Dataset):
 
         return sample
 
-
-import os
-import torch
-import torch.nn as nn
-
-import torch.nn.functional as F
-import torchvision.transforms as transforms
-from torch.utils.data  import DataLoader
-from omegaconf import OmegaConf
-
-from Net import FaceLocator,EMODataset,FramesEncodingVAE
-from typing import List, Dict, Any
-# Other imports as necessary
-import torch.optim as optim
-import yaml
-
-
-# works but complicated 
-def gpu_padded_collate(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-    assert isinstance(batch, list), "Batch should be a list"
-
-    # Unpack and flatten the images and speeds from the batch
-    all_images = []
-    all_speeds = []
-    for item in batch:
-        # Assuming each 'images' field is a list of tensors for a single video
-        all_images.extend(item['images'])  # Flatten the list of lists into a single list
-        all_speeds.extend(item['speeds'])  # Flatten the list of lists into a single list
-
-    assert all(isinstance(img, torch.Tensor) for img in all_images), "All images must be PyTorch tensors"
-    assert all(isinstance(speed, torch.Tensor) for speed in all_speeds), "All speeds must be PyTorch tensors"
-
-    # Determine the maximum dimensions
-    assert all(img.ndim == 3 for img in all_images), "All images must be 3D tensors"
-    max_height = max(img.shape[1] for img in all_images)
-    max_width = max(img.shape[2] for img in all_images)
-
-    # Pad the images
-    padded_images = [F.pad(img, (0, max_width - img.shape[2], 0, max_height - img.shape[1])) for img in all_images]
-
-    # Stack the padded images and speeds
-    images_tensor = torch.stack(padded_images)
-    speeds_tensor = torch.stack(all_speeds)
-
-    # Assert the correct shape of the output tensors
-    assert images_tensor.ndim == 4, "Images tensor should be 4D"
-    assert speeds_tensor.ndim == 2, "Speeds tensor should be 2D"
-
-    return {'images': images_tensor, 'speeds': speeds_tensor}
-
-
-def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cfg):
-    model.train()  # Set the model to training mode
-
-    for epoch in range(num_epochs):
-        running_loss = 0.0
-
-        for batch in data_loader:
-            for i in range(batch['images'].size(0)):  # Iterate over images in the batch
-                # Ensure that we have enough previous frames for the current index
-                start_idx = max(0, i - cfg.training.prev_frames)  # eg. 2 previous frames to consider
-                end_idx = i + 1  # Exclusive end index for slicing
-
-                reference_image = batch['images'][i].unsqueeze(0).to(device)
-                prev_motion_frames = [batch['images'][j].unsqueeze(0).to(device) for j in range(start_idx, end_idx)]
-
-                # Combine previous motion frames into a single tensor
-                motion_frames = torch.cat(prev_motion_frames, dim=1).to(device)
-                speed = batch['speeds'][i].unsqueeze(0).to(device)
-
-                target_frames = torch.cat([reference_image] + prev_motion_frames, dim=1).to(device)
-
-                optimizer.zero_grad()  # Zero the parameter gradients
-
-                # Forward pass using the current reference image, previous motion frames, and speed
-                recon_frames, _, _, _, _ = model(reference_image, motion_frames, speed)
-                loss = criterion(recon_frames, target_frames)  # Compute the loss
-                loss.backward()  # Backward pass: compute gradient of the loss with respect to model parameters
-                optimizer.step()  # Perform a single optimization step (parameter update)
-
-                running_loss += loss.item()
-
-        epoch_loss = running_loss / len(data_loader)
-        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}')
-
-    return model
-
-
-# BACKBONE ~ MagicAnimate class
-# Stage 1: Train the VAE (FramesEncodingVAE) with the Backbone Network and FaceLocator.
-def main(cfg: OmegaConf) -> None:
-    transform = transforms.Compose([
-        transforms.Resize((cfg.data.train_height, cfg.data.train_width)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
-    ])
-
-    dataset = EMODataset(
-        use_gpu=cfg.training.use_gpu_video_tensor,
-        width=cfg.data.train_width,
-        height=cfg.data.train_height,
-        n_sample_frames=cfg.data.n_sample_frames,
-        sample_rate=cfg.data.sample_rate,
-        img_scale=(1.0, 1.0),
-        data_dir='./images_folder',
-        video_dir='/home/oem/Downloads/CelebV-HQ/celebvhq/35666',
-        json_file='./data/overfit.json',
-        stage='stage1-vae',
-        transform=transform
-    )
-
-    # Configuration and Hyperparameters
-    num_epochs = 10  # Example number of epochs
-    learning_rate = 1e-3  # Example learning rate
-
-    # Initialize Dataset and DataLoader
-    data_loader = DataLoader(dataset, batch_size=cfg.training.batch_size, shuffle=True, num_workers=cfg.training.num_workers, collate_fn=gpu_padded_collate)
-
-    # Model, Criterion, Optimizer
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Load the YAML configuration file
-    with open('./configs/config.yaml', 'r') as file:
-        config = yaml.safe_load(file)
-
-    v2 = False  # SD 2.1
-    # Access the reference_unet_config based on args.v2
-    if v2:
-        unet_config = config['reference_unet_config']['v2']
-        denoise_unet_config = config['denoising_unet_config']['v2']
-    else:
-        # SD 1.5
-        unet_config = config['reference_unet_config']['default']
-        denoise_unet_config = config['denoising_unet_config']['default']
-
-    emo_config = {
-        "reference_unet_config": unet_config,
-        "denoising_unet_config": denoise_unet_config,
-        "num_speed_buckets": cfg.num_speed_buckets,
-        "speed_embedding_dim": cfg.speed_embedding_dim,
-    }
-
-    print("emo_config:", emo_config)
-
-    model = FramesEncodingVAE(
-        img_size=cfg.data.train_height,
-        config=emo_config,
-        num_speed_buckets=cfg.num_speed_buckets,
-        speed_embedding_dim=cfg.speed_embedding_dim
-    ).to(device)
-    criterion = nn.MSELoss()  # Use MSE loss for VAE reconstruction
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-    # Train the model
-    trained_model = train_model(model, data_loader, optimizer, criterion, device, num_epochs, cfg)
-
-    # Save the model
-    torch.save(trained_model.state_dict(), 'frames_encoding_vae_model.pth')
-    print("Model saved to frames_encoding_vae_model.pth")
-
-if __name__ == "__main__":
-    config = OmegaConf.load("./configs/training/stage1.yaml")
-    main(config)
