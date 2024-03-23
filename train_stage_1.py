@@ -18,15 +18,17 @@ import yaml
 def gpu_padded_collate(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     assert isinstance(batch, list), "Batch should be a list"
 
-    # Unpack and flatten the images and speeds from the batch
+    # Unpack and flatten the images, motion frames, and speeds from the batch
     all_images = []
+    all_motion_frames = []
     all_speeds = []
     for item in batch:
-        # Assuming each 'images' field is a list of tensors for a single video
-        all_images.extend(item['images'])  # Flatten the list of lists into a single list
-        all_speeds.extend(item['speeds'])  # Flatten the list of lists into a single list
+        all_images.extend(item['images'])
+        all_motion_frames.extend(item['motion_frames'])
+        all_speeds.extend(item['speeds'])
 
     assert all(isinstance(img, torch.Tensor) for img in all_images), "All images must be PyTorch tensors"
+    assert all(isinstance(frame, torch.Tensor) for frame in all_motion_frames), "All motion frames must be PyTorch tensors"
     assert all(isinstance(speed, torch.Tensor) for speed in all_speeds), "All speeds must be PyTorch tensors"
 
     # Determine the maximum dimensions
@@ -34,20 +36,21 @@ def gpu_padded_collate(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     max_height = max(img.shape[1] for img in all_images)
     max_width = max(img.shape[2] for img in all_images)
 
-    # Pad the images
+    # Pad the images and motion frames
     padded_images = [F.pad(img, (0, max_width - img.shape[2], 0, max_height - img.shape[1])) for img in all_images]
+    padded_motion_frames = [F.pad(frame, (0, max_width - frame.shape[2], 0, max_height - frame.shape[1])) for frame in all_motion_frames]
 
-    # Stack the padded images and speeds
+    # Stack the padded images, motion frames, and speeds
     images_tensor = torch.stack(padded_images)
+    motion_frames_tensor = torch.stack(padded_motion_frames)
     speeds_tensor = torch.stack(all_speeds)
 
     # Assert the correct shape of the output tensors
     assert images_tensor.ndim == 4, "Images tensor should be 4D"
+    assert motion_frames_tensor.ndim == 4, "Motion frames tensor should be 4D"
     assert speeds_tensor.ndim == 2, "Speeds tensor should be 2D"
 
-    return {'images': images_tensor, 'speeds': speeds_tensor}
-
-
+    return {'images': images_tensor, 'motion_frames': motion_frames_tensor, 'speeds': speeds_tensor}
 def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cfg):
     model.train()  # Set the model to training mode
 
@@ -56,23 +59,16 @@ def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cf
 
         for batch in data_loader:
             for i in range(batch['images'].size(0)):  # Iterate over images in the batch
-                # Ensure that we have enough previous frames for the current index
-                start_idx = max(0, i - cfg.training.prev_frames)  # eg. 2 previous frames to consider
-                end_idx = i + 1  # Exclusive end index for slicing
-
                 reference_image = batch['images'][i].unsqueeze(0).to(device)
-                prev_motion_frames = [batch['images'][j].unsqueeze(0).to(device) for j in range(start_idx, end_idx)]
-
-                # Combine previous motion frames into a single tensor
-                motion_frames = torch.cat(prev_motion_frames, dim=1).to(device)
+                motion_frames = batch['motion_frames'][i].unsqueeze(0).to(device)
                 speed = batch['speeds'][i].unsqueeze(0).to(device)
 
-                target_frames = torch.cat([reference_image] + prev_motion_frames, dim=1).to(device)
+                target_frames = torch.cat([reference_image, motion_frames], dim=1).to(device)
 
                 optimizer.zero_grad()  # Zero the parameter gradients
 
-                # Forward pass using the current reference image, previous motion frames, and speed
-                recon_frames, _, _, _, _ = model(reference_image, motion_frames, speed)
+                # Forward pass using the current reference image, motion frames, and speed
+                recon_frames = model(reference_image, motion_frames, speed)
                 loss = criterion(recon_frames, target_frames)  # Compute the loss
                 loss.backward()  # Backward pass: compute gradient of the loss with respect to model parameters
                 optimizer.step()  # Perform a single optimization step (parameter update)
