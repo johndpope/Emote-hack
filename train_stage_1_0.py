@@ -104,7 +104,7 @@ def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cf
                 if i < cfg.data.n_motion_frames:  # jump to the third frame - so we can get previous 2 frames
                     continue
 
-                reference_image = video_frames[i].unsqueeze(0)  # Add batch dimension
+                reference_image = video_frames[i].unsqueeze(0)  #num_inference_frames Add batch dimension
                 motion_frames = video_frames[max(0, i - cfg.data.n_motion_frames):i]  # add the 2 frames
 
                 # Ensure the reference_image has the correct dimensions [1, C, H, W]
@@ -113,8 +113,7 @@ def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cf
                 # Ensure motion_frames have the correct dimensions [N, C, H, W]
                 assert motion_frames.ndim == 4, "Motion frames should have shape [N, C, H, W]"
 
-                # Pre-extract motion features from motion frames
-                motion_features = model.pre_extract_motion_features(motion_frames)
+         
 
                 # Convert the reference image to latents
                 reference_latent = images2latents(reference_image, dtype=model.dtype, vae=model.vae)
@@ -122,6 +121,9 @@ def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cf
                 # Sample a random timestep for each image
                 timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (reference_latent.shape[0],), device=reference_latent.device)
                 
+
+                # Pre-extract motion features from motion frames
+                motion_features = model.pre_extract_motion_features(motion_frames,timesteps)
                 # Add noise to the latents
                 noisy_latents = noise_scheduler.add_noise(reference_latent, torch.randn_like(reference_latent), timesteps)
 
