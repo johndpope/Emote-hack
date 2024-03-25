@@ -25,6 +25,8 @@ The heavy lifting now is implementing the denoise of unet/ integrating attention
 - **AnimateAnyone** - https://github.com/jimmyl02/animate/tree/main/animate-anyone
   3 training stages here
   https://github.com/jimmyl02/animate/tree/main/animate-anyone
+ - **DiffusedHeads** - (no training code)  https://github.com/MStypulkowski/diffused-heads
+
 While this is using poseguider - it's not hard to see a dwpose / facial driving the animation. https://www.reddit.com/r/StableDiffusion/comments/1281iva/new_controlnet_face_model/?rdt=50313&onetap_auto=true
 
 
@@ -51,6 +53,8 @@ ideally the network would take a sound (wav2vec stuff) - and show an facial expr
 
 ## Face Locator:
 The face locator is a separate module that learns to detect and localize the face region in a single input image.It takes a reference image as input and outputs the corresponding face region mask.(DRAFTED - train_stage_0.py)
+UPDATE - I think we can substitute this work for Alibaba's existing trained model (6.8gb) to drop in replace and provide mask conditioning https://github.com/johndpope/Emote-hack/issues/28
+
 
 ## Speed Encoder:
 The speed encoder takes the audio waveform as input and extracts speed embeddings.
@@ -130,29 +134,14 @@ Note: The sample includes rich tagging. For more details, see `./data/test.json`
 
 
 ### Models / architecture
-
+(flux)
 
 
 
 ```javascript
-
--✅ FramesEncodingVAE
-  - __init__(input_channels, latent_dim, img_size, reference_net)
-  - reparameterize(mu, logvar)
-  - forward(reference_image, motion_frames, speed_value)
-  - vae_loss(recon_frames, reference_image, motion_frames, reference_mu, reference_logvar, motion_mu, motion_logvar)
-
-- DownsampleBlock
-  - __init__(in_channels, out_channels)
-  - forward(x)
-
-- UpsampleBlock
-  - __init__(in_channels, out_channels)
-  - forward(x1, x2)
-
 - ✅ ReferenceNet
-  - __init__(vae_model, speed_encoder, config)
-  - forward(reference_image, motion_frames, head_rotation_speed)
+  - __init__(self, config, reference_unet, denoising_unet, vae, dtype)
+  - forward(self, reference_image, motion_features, timesteps)
 
 - ✅ SpeedEncoder
   - __init__(num_speed_buckets, speed_embedding_dim)
@@ -216,5 +205,9 @@ Note: The sample includes rich tagging. For more details, see `./data/test.json`
   - has some training code
 ```
 
- 
+magicanimate code - it has custom blocks for unet - maybe very useful when wiring up the attentions in unet.
+```javascript
+- EMOAnimationPipeline (copied from magicanimate)
+  - has some training code / this should not need text encoder / clip to aling with EMO paper. 
+```
 

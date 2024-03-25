@@ -13,6 +13,7 @@ training:
   num_epochs: 2
   use_gpu_video_tensor: True
   prev_frames: 2  # Add this line to specify the number of previous frames to consider
+  video_data_dir: '/home/oem/Downloads/CelebV-HQ/celebvhq/35666'
 
 solver:
   gradient_accumulation_steps: 1

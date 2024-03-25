@@ -687,7 +687,7 @@ class AudioFeatureModel(nn.Module):
 
 
 # given an image - spit out the mask
-
+# I dont think we need this - https://github.com/johndpope/Emote-hack/issues/28
 # Instantiate the model
 # model = FaceLocator()
 
