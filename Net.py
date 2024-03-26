@@ -139,6 +139,49 @@ class ReferenceNet(nn.Module):
 
         return reference_features
 
+
+class ReferenceUNetWithSelfAttention(nn.Module):
+    def __init__(self, config):
+        super(ReferenceUNetWithSelfAttention, self).__init__()
+        self.reference_unet = UNet2DConditionModel.from_pretrained(
+            config.model.reference_unet_pretrained_path,
+            subfolder="unet",
+        )
+        
+        # Add self-attention layers at different stages of the reference UNet
+        self.self_attn_layers = nn.ModuleList([
+            nn.TransformerEncoderLayer(
+                d_model=config.model.latent_dim,
+                nhead=config.model.num_heads,
+                dim_feedforward=config.model.ff_dim,
+                dropout=config.model.dropout,
+            )
+            for _ in range(config.model.num_self_attn_layers)
+        ])
+
+    def forward(self, latent_representations, timesteps, reference_image_embeds):
+        # Pass the latent representations through the reference UNet
+        reference_features = self.reference_unet(latent_representations, timesteps, reference_image_embeds).sample
+
+        # Reshape reference_features for self-attention
+        batch_size, num_frames, _, _, _ = reference_features.shape
+        reference_features = reference_features.view(batch_size * num_frames, -1)
+
+        # Interleave self-attention layers at different stages of the reference UNet
+        for i, self_attn_layer in enumerate(self.self_attn_layers):
+            # Apply self-attention to the reference features
+            reference_features = self_attn_layer(reference_features)
+
+            # Reshape the reference features back to the original shape
+            reference_features = reference_features.view(batch_size, num_frames, *reference_features.shape[1:])
+
+            # Pass the reference features through the next stage of the reference UNet
+            if i < len(self.self_attn_layers) - 1:
+                reference_features = self.reference_unet.down_blocks[i](reference_features, timesteps, reference_image_embeds)
+
+        return reference_features
+    
+    
 class DownsampleBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(DownsampleBlock, self).__init__()
