@@ -95,22 +95,7 @@ def images2latents(images, vae, dtype):
 
     return latents.to(dtype=dtype)
 
-def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cfg):
-    model.train()
-
-    # Create the noise scheduler
-    noise_scheduler = DDPMScheduler(
-        num_train_timesteps=cfg.noise_scheduler_kwargs.num_train_timesteps,
-        beta_start=cfg.noise_scheduler_kwargs.beta_start,
-        beta_end=cfg.noise_scheduler_kwargs.beta_end,
-        beta_schedule=cfg.noise_scheduler_kwargs.beta_schedule,
-        steps_offset=cfg.noise_scheduler_kwargs.steps_offset,
-        clip_sample=cfg.noise_scheduler_kwargs.clip_sample,
-    )
-
-    for epoch in range(num_epochs):
-        running_loss = 0.0
-        signal_to_noise_ratios = []
+def extract_features_from_model(model, data_loader, cfg):
 
         for batch in data_loader:
             video_frames = batch['images'].to(device)
@@ -129,8 +114,7 @@ def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cf
                 # Ensure motion_frames have the correct dimensions [N, C, H, W]
                 assert motion_frames.ndim == 4, "Motion frames should have shape [N, C, H, W]"
 
-         
-
+   
                 # Convert the reference image to latents
                 reference_latent = images2latents(reference_image, dtype=model.dtype, vae=model.vae)
                 print("reference_latent.ndim:",reference_latent.ndim)
@@ -165,8 +149,6 @@ def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cf
                     motion_latents.append(motion_frame_latent)
 
 
-
-
                 # Assuming reference_latent and motion_frame_latents are already computed
                 motion_frame_latent1, motion_frame_latent2 = motion_latents  # Unpack the two motion frame latents
 
@@ -186,40 +168,17 @@ def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cf
                 
 
 
-                # Sample a random timestep for each image
-                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (input_latent.shape[0],), device=device)
+                # Pre-extract motion features from motion frames - white paper mentions this - but where?
+                motion_features = model.pre_extract_motion_features(motion_frame_latent1)
+                print("motion_features:",motion_features)
+                
+                motion_features = model.pre_extract_motion_features(motion_frame_latent2)
+                print("motion_features:",motion_features)
+                latent_features = model.pre_extract_motion_features(reference_latent)
+                print("latent_features:",latent_features)
                 
 
-                # Pre-extract motion features from motion frames - white paper mentions this - but where?
-                # motion_features = model.pre_extract_motion_features(motion_frames,timesteps)
 
-
-                # Add noise to the latents
-                noisy_latents = noise_scheduler.add_noise(reference_latent, torch.randn_like(reference_latent), timesteps)
-
-                optimizer.zero_grad()
-
-                # Forward pass to unet with 9 channel tensor - is this true?
-                recon_frames = model(input_latent, timestep=timesteps)
-
-                # Calculate loss
-                loss = criterion(recon_frames, reference_latent)
-                loss.backward()
-                optimizer.step()
-
-                running_loss += loss.item()
-
-                # Calculate signal-to-noise ratio
-                signal_power = torch.mean(reference_latent ** 2)
-                noise_power = torch.mean((reference_latent - recon_frames) ** 2)
-                snr = 10 * torch.log10(signal_power / noise_power)
-                signal_to_noise_ratios.append(snr.item())
-
-        epoch_loss = running_loss / len(data_loader)
-        avg_snr = sum(signal_to_noise_ratios) / len(signal_to_noise_ratios)
-        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}, SNR: {avg_snr:.2f} dB')
-
-    return model
 
 
 
@@ -245,9 +204,7 @@ def main(cfg: OmegaConf) -> None:
         transform=transform
     )
 
-    # Configuration and Hyperparameters
-    num_epochs = 10  # Example number of epochs
-    learning_rate = 1e-3  # Example learning rate
+
 
     # Initialize Dataset and DataLoader
     data_loader = DataLoader(dataset, batch_size=cfg.training.batch_size, shuffle=True, num_workers=cfg.training.num_workers, collate_fn=gpu_padded_collate)
@@ -266,31 +223,22 @@ def main(cfg: OmegaConf) -> None:
         subfolder="unet",
     ).to(dtype=weight_dtype, device=device)
     
-    inference_config = OmegaConf.load("configs/inference.yaml")
-        
-    denoising_unet = UNet3DConditionModel.from_pretrained_2d(
-        '/media/2TB/ani/animate-anyone/pretrained_models/sd-image-variations-diffusers', 
-         unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs),
-       subfolder="unet")
-       
-    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse")
 
+    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(dtype=weight_dtype)
 
-    model = ReferenceNet(
+    referencenet = ReferenceNet(
         config=cfg,
         reference_unet=reference_unet,
-        denoising_unet=denoising_unet,
         vae=vae,
         dtype=weight_dtype
     ).to(dtype=weight_dtype, device=device)
-    criterion = nn.MSELoss()  # Use MSE loss for VAE reconstruction
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-    # Train the model
-    trained_model = train_model(model, data_loader, optimizer, criterion, device, num_epochs, cfg)
+
+    # Extract Features
+    extract_features_from_model(referencenet,data_loader,cfg)
 
     # Save the model
-    torch.save(trained_model.state_dict(), 'frames_encoding_vae_model.pth')
+    # torch.save(trained_model.state_dict(), 'frames_encoding_vae_model.pth')
 
 if __name__ == "__main__":
     config = OmegaConf.load("./configs/training/stage1.yaml")

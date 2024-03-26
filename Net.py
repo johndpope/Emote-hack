@@ -41,51 +41,51 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # https://github.com/johndpope/Emote-hack/issues/25
 class ReferenceNet(nn.Module):
-    def __init__(self, config, reference_unet, denoising_unet, vae, dtype):
+    def __init__(self, config, reference_unet, vae, dtype):
         super(ReferenceNet, self).__init__()
         self.reference_unet = reference_unet
-        self.denoising_unet = denoising_unet
+        # self.denoising_unet = denoising_unet
         self.vae = vae
         self.dtype = dtype
         self.num_inference_frames = config.data.n_motion_frames  # Number of frames to generate during inference
         self.num_motion_frames = config.data.n_motion_frames  # Number of motion frames
 
-    def pre_extract_motion_features(self, motion_frames,timesteps):
+    def pre_extract_motion_features(self, motion_frames):
         # Ensure motion_frames have the correct dimensions [N, C, H, W]
         assert motion_frames.ndim == 4, "Motion frames should have shape [N, C, H, W]"
         
         # Convert the motion frames to latent space
-        motion_latents = self.vae.encode(motion_frames.to(dtype=self.dtype)).latent_dist.sample()
+        motion_latents = self.vae.encode(motion_frames).latent_dist.sample()
         motion_latents = motion_latents * 0.18215
         
         # Pass motion_latents through the reference_unet to get multi-resolution motion feature maps
         with torch.no_grad():
-            motion_features = self.reference_unet(motion_latents, timestep=timesteps, encoder_hidden_states=None)
+            motion_features = self.reference_unet(motion_latents, timestep=None, encoder_hidden_states=None)
         
         return motion_features
 
-    def forward(self, reference_image, motion_features, timesteps):
-        # Ensure reference_image has the correct dimensions [1, C, H, W]
-        assert reference_image.ndim == 4 and reference_image.size(0) == 1, "Reference image should have shape [1, C, H, W]"
+    # def forward(self, reference_image, motion_features, timesteps):
+    #     # Ensure reference_image has the correct dimensions [1, C, H, W]
+    #     assert reference_image.ndim == 4 and reference_image.size(0) == 1, "Reference image should have shape [1, C, H, W]"
         
-        # Convert the reference image to latent space
-        reference_latent = self.vae.encode(reference_image.to(dtype=self.dtype)).latent_dist.sample()
-        reference_latent = reference_latent * 0.18215
+    #     # Convert the reference image to latent space
+    #     reference_latent = self.vae.encode(reference_image.to(dtype=self.dtype)).latent_dist.sample()
+    #     reference_latent = reference_latent * 0.18215
         
-        # Repeat the reference latent to match the number of frames to generate
-        reference_latents = reference_latent.repeat(self.n_motion_frames, 1, 1, 1)
+    #     # Repeat the reference latent to match the number of frames to generate
+    #     reference_latents = reference_latent.repeat(self.n_motion_frames, 1, 1, 1)
         
-        # Pass reference_latents through the reference_unet to get unet_latents
-        with torch.no_grad():
-            unet_latents = self.reference_unet(reference_latents, timestep=timesteps, encoder_hidden_states=None).sample
+    #     # Pass reference_latents through the reference_unet to get unet_latents
+    #     with torch.no_grad():
+    #         unet_latents = self.reference_unet(reference_latents, timestep=timesteps, encoder_hidden_states=None).sample
         
-        # Scale the latent vectors (optional, depends on the VAE scaling factor)
-        scaled_unet_latents = unet_latents * 0.18215
+    #     # Scale the latent vectors (optional, depends on the VAE scaling factor)
+    #     scaled_unet_latents = unet_latents * 0.18215
         
-        # Pass the scaled latents and motion features through the denoising_unet
-        generated_frames = self.denoising_unet(scaled_unet_latents, timestep=timesteps, encoder_hidden_states=motion_features)
+    #     # Pass the scaled latents and motion features through the denoising_unet
+    #     generated_frames = self.denoising_unet(scaled_unet_latents, timestep=timesteps, encoder_hidden_states=motion_features)
         
-        return generated_frames
+    #     return generated_frames
 
 
 class DownsampleBlock(nn.Module):
