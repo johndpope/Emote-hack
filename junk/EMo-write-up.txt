@@ -1,0 +1,227 @@
+Skip to content
+
+Home
+Plausible Stable Diffusion Video From a Single Image
+EMO
+March 1, 2024
+11:28 am
+ABOUT THE AUTHOR
+Martin Anderson
+Martin Anderson
+I'm Martin Anderson, a writer occupied exclusively with machine learning, artificial intelligence, big data, and closely-related topics, with an emphasis on image synthesis, computer vision, and NLP.
+Author Website
+Author Archive
+Share This Post
+A new generative system from the Alibaba Group has made an unusual impression this week on the AI synthesis scene, offering a method that’s capable of achieving apparently state-of-the-art audio>video transformations, by leveraging Stable Diffusion and the AnimateDiff framework that has proven so capable recently of bringing movement to Stable Diffusion.
+
+The new work is capable of using audio (such as speech or music) to drive an avatar derived from just one source image. The output is unusually mobile and expressive, and the emotional range of the rendered character is proportionate to the emotional temperature of the source clip:
+
+Click to play (FEATURES SOUND). The late and ever-idolized Audrey Hepburn sings and talks with music and words that she never uttered, based only on a single source image. Source: https://humanaigc.github.io/emote-portrait-alive/
+
+As we can see in the video above, the new system, titled EMO, can extrapolate significant and audio-accurate motion by concatenating features obtained from a single source photo and one audio clip – though it’s powered by priors (pre-existing data) from 250 hours of footage and over 150 million images.
+
+We have seen picture>video systems of this nature before, such as the 2019 First Order Motion Model (FOMM). However, even the more recent of previous similar works have suffered from a certain ‘stiffness’ or facial rigidity during enactment at inference time. In the clip below, we can see an example of this, from FOMM:
+
+Click to play. Examples from the FOMM framework impressed at the time, but now seem rather stilted. Source: https://aliaksandrsiarohin.github.io/first-order-model-website/
+
+Similar functionality was implemented for the MyHeritage LiveStory feature, which can likewise create animations from a single photo, using text provided by the end-user. However, anyone who has used this feature will know that, similar to FOMM, it has very little ability to deviate significantly from the single source photo utilized in the process (i.e., to show head poses or expressions that are notably different from the input source image).
+
+By contrast, the EMO system can not only provide more extensive movement in the output, but can even automatically modulate the affect range of the facial expression, relative to the audio source.
+
+Click to play (FEATURES SOUND). In this example, facial expression intensity is determined by the high notes in the song, which the extensive priors in the dataset know to be associated with these more extreme facial expressions.
+
+Regarding the above example, the paper states:
+
+‘[This example reveals] that high-pitched vocal tones elicit more intense and animated expressions from the characters’
+
+Though many subsequent systems (some tested against the new framework, in the researchers’ paper) have improved on these early efforts, they remain hamstrung by the challenges inherent in using so little data to create complex movement.
+
+These include: the inability to create clips of adequate length to cover a long speech or a song; the inability to maintain consistent identity and appearance throughout (because the next part of a concatenated series of clips is usually ‘seeded’ by the last frame of the previous one, leading to subtle but pervasive changes over time); the aforementioned rigidity of movement, where only lips are synced, and apposite head rotation cannot be obtained; ‘jittery’ reproduction, which can look more ‘psychedelic’ than photorealistic; and various other tell-tale signs of constrained resources and approaches.
+
+Many such flaws occur because these older systems use interstitial, CGI-based methods such as 3D Morphable Models (3DMMs), Skinned Multi-Person Linear Model (SMPL) figures, or FLAME to ‘map’ the sole provided image to 3D coordinates – and, as the researchers note, these ‘bridging’ models do not necessarily have the necessary expressiveness or scope to fulfil the remit.
+
+Instead, EMO makes use not only of the base Stable Diffusion system, but several related tertiary systems, such as AnimateDiff and Google’s MediaPipe face detection framework, to provide a single-source generative system that leverages the most current technologies, for a video interpretation system with fewer architectural diversions.
+
+Click to play (FEATURES SOUND). The trained knowledge of millions of photos and over 250 hours of audio allows EMO to interpret a single image into an extraordinarily adept and emotive clip.
+
+In tests, EMO ‘significantly’ outperformed the rival frameworks chosen – though the authors concede that it inherits some of Stable Diffusion’s shortcomings, such as specious or non-apposite generation of body parts (these are not illustrated in the paper).
+
+The EMO process can also be more time-consuming than earlier methods, since it relies on diffusion models instead of the slightly more adroit third-party interpretive frameworks favored by some of its antecedents.
+
+It’s not really certain what the potential value of this method is for heavier industrial use, such as VFX work. Though EMO can certainly maintain the appearance of continuity in one long clip, and though one could use LoRA-style consistent seed images to create alternate clips (i.e., other ‘cuts’ in an edited sequence), in theory it suffers from the same limitations as many [x]>video systems of the last two years – and even the very recent Sora system – in that it is great for ‘TikTok-style’ one-off showcases, but has no obvious native means of fulfilling a longer and more complex narrative – at least, not consistently.
+
+Click to play (FEATURES SOUND). Several of the examples at the project site use material taken from the popular civit.ai website. As the authors point out, the lack of ‘stylized’ training material in the database does not impede EMO from working well on non-photorealistic source material.
+
+From a VFX point of view, the mechanisms employed to create lip-synced speech and music could be utilized in their own right for AI-based re-dubbing systems, which are always undertaken on a per-clip basis anyway. In such cases, the surface topology (lips) can usually be recreated consistently, since they are not terribly complex, and a relatively small number of phonemes are needed.
+
+Click to play (FEATURES SOUND). A popular test subject for single-source photo>video systems, the enigmatic Mona Lisa is notably more chatty when prompted by input audio speech.
+
+The paper states:
+
+‘Given a single reference image of a character portrait, our approach can generate a video synchronized with an input voice audio clip, preserving the natural head motion and vivid expression in harmony with the tonal variances of the provided vocal audio.
+
+‘By creating a seamless series of cascaded video, our model facilitates the generation of long-duration talking portrait videos with consistent identity and coherent motion, which are crucial for realistic  applications.’
+
+The new paper is titled EMO: Emote Portrait Alive – Generating Expressive Portrait Videos with Audio2Video Diffusion Model under Weak Conditions, and comes from four researchers at the Institute for Intelligent Computing at Alibaba Group. A video-laden project site full of dazzling supplementary material was put online at the same time the paper was published, as well as a YouTube video (embedded at the end of this article).
+
+Method
+The backbone network for EMO is based on Stable Diffusion, and the architecture of the new system is divided into two stages: In the first stage, the Frame Encoding process uses an augmentation of the ReferenceNet* network to extract features from the sole reference image. The next stage is the Diffusion Process, where an off-the-shelf pretrained audio encoder takes charge of the audio embedding.
+
+Conceptual schema for the two phases of EMO training.
+Conceptual schema for the two phases of EMO training.
+A facial region mask is used to direct the generation of faces using multi-frame noise, after which the backbone network denoises these images. The backbone network itself contains two attention mechanisms: Reference Attention (imagery) and Audio Attention (to process words/music, etc.).
+
+Let’s take a closer look at the entire process.
+
+Backbone Network
+The Backbone network employs a Unet architecture that shares a structural configuration with Stable Diffusion itself. Temporal modules are added to orchestrate changes over the duration of the generated video, and the aforementioned implementation of ReferenceNet runs parallel to the backbone, obtaining reference features simultaneously, and constantly monitoring the maintenance of the ID throughout the rendered video.
+
+Since the authors’ implementation of Stable Diffusion has no text component, the cross-attention layers in the system were modified to accept reference features from the ReferenceNet implementation, instead of text embeddings. Therefore EMO’s implementation of Stable Diffusion no longer operates as a text-to-image model, but as a feature-to-image model.
+
+Audio
+For extraction of audio features, the pre-trained wav2vec network is used, and the features concatenated to provide the final audio representation embedding. At render time, the original audio will naturally be attached to the output video, but will by that stage have been decomposed into multiple sets of features that define the way the face is created in temporal space.
+
+In a similar method to optical flow, and other temporal procedures that ‘look ahead’ in the upcoming frames in order to condition the current frame, the features of nearby frames are concatenated, so that the current frame has temporal coherence with its neighbors.
+
+The authors state:
+
+‘To inject the voice features into the generation procedure, we add audio-attention layers performing a cross attention mechanism between the latent code and [the initial generation] after each ref-attention layers in the Backbone Network.’
+
+Click to play (FEATURES SOUND). Speech and then singing, combined in this clip processed by EMO from the source photo on the left.
+
+ReferenceNet
+The authors state that the ReferenceNet structure is identical to the (SD) backbone network, and is key to the efficacy of the system. Citing the Animate Anyone and TryOnDiffusion projects, the researchers observe:
+
+‘Prior research has underscored the profound influence of utilizing analogous structures in maintaining the consistency of the target object’s identity. In our study, both the ReferenceNet and the Backbone Network inherit weights from the original SD UNet. The image of the target character is inputted into the ReferenceNet to extract the reference feature maps outputs from the self-attention layers.
+
+‘During the Backbone denoising procedure, the features of corresponding layers undergo a reference-attention layers with the extracted feature maps.’
+
+Temporal Factor
+The temporal capabilities in EMO are based on the architecture and concepts of the AnimateDiff project, applying self-attention layers to the features within each frame. This is a stark departure from the majority of prior works, which tend to shoe-horn unrelated systems such as 3DMM into the procedure.
+
+The paper states:
+
+‘[We] direct the self-attention across the temporal [dimension], to effectively capture the dynamic content of the video. The temporal layers are inserted at each resolution stratum of the Backbone Network.’
+
+The authors note that most similar systems are constrained to produce a set number of frames. This limited canvas may not conform to the needs of the user or the strictures of the input data (such as sound clips, for instance). Therefore EMO uses a certain number of the final frames of the previous clip as a bridge to the next section, together with modules which can control the speed and scope of the action depicted, so that the system is not driven by arbitrary limitations of the input data.
+
+These motion frames are fed to the ReferenceNet adaptation, which extracts multi-resolution motion feature maps from them. These maps are then input into the Stable Diffusion denoising process, as guidelines. The features extracted from them are reused throughout the denoising process; no matter how many times denoising occurs, they remain invariant.
+
+Click to play (FEATURES SOUND). An up-to-date example of EMO’s power to impose speech from archival material into novel output, featuring the lady from the recently-released Sora framework.
+
+Face Location and Speed
+Though the aforementioned temporal measures ensure continuity of motion, they do not guarantee persistence of identity. In a long clip, several strings of feature-sequences will have become concatenated, based off the final selections in the previous clip. In this way, aspects of the video can subtly ‘evolve’ in undesired ways, not least of which is subject ID.
+
+Though previous projects such as SadTalker and VividTalk have used the likes of 3DMMs, skeletons or blendshapes to preserve these essential traits, these secondary systems all restrict the facial freedom of movement. For this reason, the researchers for EMO opted for a ‘weak’ control signal instead.
+
+EMO uses a Face Locator module to provide a mask for identified facial regions. The encoded mask is then added to the nosy latent representation before being included in the flow of data to the backbone (i.e., Stable Diffusion). Thus the mask can be used to control where in the image the character face should be situated.
+
+An additional cross-attention mechanism handles the head rotation velocity across each frame, and the results are passed to a Multi-Layer Perceptron (MLP), which extracts an estimation of the correct speed features to use in the output process.
+
+Click to play (FEATURES SOUND). A young Leonardo DiCaprio becomes vocal under EMO.
+
+Data and Tests
+In training, the temporal part of the EMO architecture initializes weights from AnimateDiff.  The backbone takes a single frame as input (i.e., the sole source image), and ReferenceNet handles a randomly-chosen frame from the resulting video.
+
+The temporal and audio modules are introduced in the second phase, and in this section a predefined number of frames are sampled from the generated video clip, with the initial frames used as ‘seed’ material.
+
+To test the system, the authors compiled a dataset of 250 hours of talking head videos, scraped from the internet, and augmented this with additional material from the HDTF and VFHQ datasets (though the VFHQ dataset features no audio, and therefore was used only in the first training phase, prior to audio processing).
+
+Facial bounding boxes for the data were obtained from the MediaPipe framework, and facial landmarks were used to calculate the head rotation velocity.
+
+The video clips sourced for the project were resized and cropped to a standard 512x512px ratio. During the first training phase, the source image and the target frame were sampled from the video clip separately, and the backbone network (SD) and ReferenceNet were trained at a batch size of 48.
+
+For the second training phase, the batch size was reduced to 4, and the learning rate for all phases was 1e-5 (the lowest practicable setting).
+
+For inference, where Stable Diffusion is actually outputting the video frames, the DDIM sampling algorithm was used.
+
+The HDTF dataset was split for the tests, with 90% dedicated to training and 10% set aside as a test set.
+
+Rival former methods challenged in the tests were Wav2Lip, SadTalker, and DreamTalk. Additionally, the authors generated models based on Diffused Heads – however, this framework features a dataset with exclusively green backgrounds, which compromised the quality, and therefore this implementation was only used in the qualitative round, and excluded from quantitative tests.
+
+The green-screen backgrounds of the Diffused Heads project made it unsuitable for quantitative tests. Source: https://arxiv.org/pdf/2301.03396.pdf
+The green-screen backgrounds of the Diffused Heads project made it unsuitable for quantitative tests. Source: https://arxiv.org/pdf/2301.03396.pdf
+The models were evaluated with diverse metrics, including Fréchet Inception Distance (FID, though this method has recently come under criticism); Facial Similarity (F-SIM), which was obtained by comparing extracted features from the generated and source frame; Fréchet Video Distance (FVD); and SyncNet scoring, to assess lip-sync quality.
+
+Additionally, the researchers leveraged techniques developed for a 2019 project titled Accurate 3D Face Reconstruction with Weakly-Supervised Learning, in order to extract facial expression parameters through face reconstruction, and therefore evaluate expression quality through FID.
+
+Qualitative results across the tested systems, with ground truth in the top row.
+Qualitative results across the tested systems, with ground truth in the top row.
+Video examples of these comparison are also featured in the accompanying YouTube video for the project (embedded in its entirety at the end of the article):
+
+Click to play (FEATURES SOUND). Comparisons to prior frameworks. Source: https://www.youtube.com/watch?v=VlJ71kzcn9Y
+
+Of the qualitative round (illustrated above), the authors state:
+
+‘It is observable that Wav2Lip typically synthesizes blurry mouth regions and produces videos characterized by a static head pose and minimal eye movement when a single reference image is provided as input.
+
+‘In the case of [DreamTalk], the style clips supplied by the authors could distort the original faces, also constrain the facial expressions and the dynamism of head movements. In contrast to SadTalker and DreamTalk, our proposed method is capable of generating a greater range of head movements and more dynamic facial expressions.
+
+‘Since we do not utilize direct signal, e.g. blendshape or 3DMM, to control the character motion, these motions are directly driven by the (audio).’
+
+Separate tests were conducted for the green-screen content of Diffused Heads:
+
+Comparison against the Diffused Heads system, which demonstrates manifest errors.
+Comparison against the Diffused Heads system, which demonstrates manifest errors.
+Though a number of further qualitative tests for EMO alone are included in the new paper, the above results comprise the only qualitative round featuring rival systems.
+
+Quantitative results against the rival systems.
+Quantitative results against the rival systems.
+In regard to the quantitative tests (table above), the paper states:
+
+‘[Our] results demonstrate a substantial advantage in video quality assessment, as evidenced by the lower FVD scores. Additionally, our method outperforms others in terms of individual frame quality, as indicated by improved FID scores.
+
+‘Despite not achieving the highest scores on the SyncNet metric, our approach excels in generating lively facial expressions as shown by E-FID’
+
+Conclusion
+Though the showcase examples for EMO are very impressive, the fact that the new system achieves a significantly lower score than the prior Wav2Lip, in terms of its ability to render lip-speech motion from audio, arguably undermines the one potential practical use the system has (beyond generating viral content, and assuming no real-time implementation is feasible): an improved, diffusion-based method of AI-based redubbing.
+
+Nonetheless, it seems likely that several of the very novel core approaches featured in EMO may end up contributing valuable contributions to the pipelines of more robust and widely-applicable systems; and the researchers’ bold move away from the constraints of 3DMM and other ‘alien’ interpretive systems, in favor of an architecture that adheres so closely to Stable Diffusion’s inner mechanisms, is an encouraging sign for later works.
+
+
+* The term ‘ReferenceNet’ is not cited to any former publication in the new paper, and the link that I have provided is the only prior work published under exactly this term. As far as I can tell, the approach of the older work has been re-imagined for the Frames Encoding stage in the new system.
+
+RETURN TO METAPHYSIC BLOG HOME
+
+Prev
+PREVIOUS
+Better Neural Avatars From Just Five Face Images
+NEXT
+Face-Swapping Directly in the Latent Space
+Next
+More To Explore
+FaceXFormer
+AI ML DL
+A Unified System For Facial Analysis
+A new offering from John Hopkins University aims to integrate essential facial analysis tasks, such as semantic segmentation, landmark attribution, and age, race and gender classification, into a single framework, powered by a novel Transformer-based token system.
+
+Martin Anderson  March 22, 2024
+Animate Your Motion
+AI ML DL
+The Continuing Struggle To Create Significant Motion In Text-To-Video Output
+Text-to-video systems such as Sora and Runway’s offerings wow the internet, but actually feature very limited real movement. Only a small number of current publications deal with the problem, such as the recent Boximator project, which uses bounding boxes as movement targets and forces more obvious movement shifts. Now, a new system offers a multimodal approach to producing ‘abrupt’ movements in generated video.
+
+Martin Anderson  March 20, 2024
+“
+It is the mark of an educated mind to be able to entertain a thought without accepting it.
+ARISTOTLE
+
+
+Copyright © 2023. All rights reserved.
+Privacy Policy
+
+QUICK LINKS
+Home
+Every Anyone
+Synthetic Futures
+CONNECT WITH US
+Discord
+Tiktok
+Twitter
+Youtube
+Instagram
+Github
+Linkedin
+CONTACT INFO
+info@metaphysic.ai
+press@metaphysic.ai

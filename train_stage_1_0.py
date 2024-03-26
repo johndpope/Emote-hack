@@ -95,7 +95,22 @@ def images2latents(images, vae, dtype):
 
     return latents.to(dtype=dtype)
 
-def extract_features_from_model(model, data_loader, cfg):
+def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cfg):
+    model.train()
+
+    # Create the noise scheduler
+    noise_scheduler = DDPMScheduler(
+        num_train_timesteps=cfg.noise_scheduler_kwargs.num_train_timesteps,
+        beta_start=cfg.noise_scheduler_kwargs.beta_start,
+        beta_end=cfg.noise_scheduler_kwargs.beta_end,
+        beta_schedule=cfg.noise_scheduler_kwargs.beta_schedule,
+        steps_offset=cfg.noise_scheduler_kwargs.steps_offset,
+        clip_sample=cfg.noise_scheduler_kwargs.clip_sample,
+    )
+
+    for epoch in range(num_epochs):
+        running_loss = 0.0
+        signal_to_noise_ratios = []
 
         for batch in data_loader:
             video_frames = batch['images'].to(device)
@@ -108,77 +123,52 @@ def extract_features_from_model(model, data_loader, cfg):
                 reference_image = video_frames[i].unsqueeze(0)  #num_inference_frames Add batch dimension
                 motion_frames = video_frames[max(0, i - cfg.data.n_motion_frames):i]  # add the 2 frames
 
-                # Ensure the reference_image has the correct dimensions [1, C, H, W]
-                assert reference_image.ndim == 4 and reference_image.size(0) == 1, "Reference image should have shape [1, C, H, W]"
+                # Convert the reference image to latents 512 -> 64. why not 256? seems like they started higher.
+                reference_latent = images2latents(reference_image, dtype=model.dtype, vae=model.vae)
 
-                # Ensure motion_frames have the correct dimensions [N, C, H, W]
-                assert motion_frames.ndim == 4, "Motion frames should have shape [N, C, H, W]"
+                # Convert the motion frames to latents
+                motion_latents = []
+                for motion_frame in motion_frames:
+                    motion_frame_latent = images2latents(motion_frame, dtype=model.dtype, vae=model.vae)
+                    motion_latents.append(motion_frame_latent)
+                motion_latents = torch.stack(motion_latents, dim=1)
+
 
    
-                # Convert the reference image to latents
-                reference_latent = images2latents(reference_image, dtype=model.dtype, vae=model.vae)
-                print("reference_latent.ndim:",reference_latent.ndim)
-                print("reference_latent.batch:",reference_latent.size(0))
-                print("reference_latent.channels:",reference_latent.size(1))
-                print("reference_latent.h:",reference_latent.size(2))
-                print("reference_latent.w:",reference_latent.size(3))
-
-                # 9 channels tensor? https://github.com/johndpope/Emote-hack/issues/27
-                batch,latent_channels, height, width = reference_latent.shape
-
-                # Convert the motion frames to latents and concatenate them with the reference latent IN THE CHANNEL DIMENSION
-                motion_latents = []
-                for idx, motion_frame in enumerate(motion_frames):
-                    print("motion_frame.ndim:",motion_frame.ndim)
-                    print("motion_frame.batch:",motion_frame.size(0))
-                    print("motion_frame.channels:",motion_frame.size(1))
-                    print("motion_frame.h:",motion_frame.size(2))
-                    # print("motion_frame.w:",motion_frame.size(3))
-
-                    motion_frame_latent = images2latents(motion_frame, dtype=model.dtype, vae=model.vae)
-                    print("motion_frame_latent.ndim:",motion_frame_latent.ndim)
-                    print("motion_frame_latent.b:",motion_frame_latent.size(0))
-                    print("motion_frame_latent.c:",motion_frame_latent.size(1))
-                    print("motion_frame_latent.h:",motion_frame_latent.size(2))
-                    print("motion_frame_latent.w:",motion_frame_latent.size(3))
-
-                    # Assert the shape of each motion frame latent
-                    assert motion_frame_latent.shape == (batch,latent_channels, height, width), \
-                        f"Motion frame latent {idx} has an inconsistent shape"
-                    
-                    motion_latents.append(motion_frame_latent)
-
-
-                # Assuming reference_latent and motion_frame_latents are already computed
-                motion_frame_latent1, motion_frame_latent2 = motion_latents  # Unpack the two motion frame latents
-
-                # Concatenate the reference latent and one motion frame latent, then select channels to form a 9-channel tensor
-                input_latent = torch.cat([
-                    reference_latent[:, :3, :, :],  # Take first 3 channels
-                    motion_frame_latent1[:, :3, :, :],  # Take first 3 channels from the first motion frame
-                    motion_frame_latent2[:, :3, :, :]  # Take first 3 channels from the second motion frame
-                ], dim=1)
-                # Concatenate the reference latent and motion latents along the channel dimension
-                # input_latent = torch.cat([reference_latent] + motion_latents, dim=0)
-
-                print("input_latent.b:",input_latent.size(0))
-                print("input_latent.c:",input_latent.size(1))
-                print("input_latent.h:",input_latent.size(2))
-                print("input_latent.w:",input_latent.size(3))
+                # Pass the reference latent and motion latents through the ReferenceNet
+                first_layer_output = model(reference_latent, motion_latents)
+                print("first_layer_output:",first_layer_output)
                 
+                # send to the backbone.
 
 
-                # Pre-extract motion features from motion frames - white paper mentions this - but where?
-                motion_features = model.pre_extract_motion_features(motion_frame_latent1)
-                print("motion_features:",motion_features)
-                
-                motion_features = model.pre_extract_motion_features(motion_frame_latent2)
-                print("motion_features:",motion_features)
-                latent_features = model.pre_extract_motion_features(reference_latent)
-                print("latent_features:",latent_features)
-                
 
+                # Add noise to the latents
+                # noisy_latents = noise_scheduler.add_noise(reference_latent, torch.randn_like(reference_latent), timesteps)
 
+                # optimizer.zero_grad()
+
+                # # Forward pass to unet with 9 channel tensor - is this true?
+                # recon_frames = model(input_latent, timestep=timesteps)
+
+                # # Calculate loss
+                # loss = criterion(recon_frames, reference_latent)
+                # loss.backward()
+                # optimizer.step()
+
+                # running_loss += loss.item()
+
+                # # Calculate signal-to-noise ratio
+                # signal_power = torch.mean(reference_latent ** 2)
+                # noise_power = torch.mean((reference_latent - recon_frames) ** 2)
+                # snr = 10 * torch.log10(signal_power / noise_power)
+                # signal_to_noise_ratios.append(snr.item())
+
+        epoch_loss = running_loss / len(data_loader)
+        avg_snr = sum(signal_to_noise_ratios) / len(signal_to_noise_ratios)
+        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}, SNR: {avg_snr:.2f} dB')
+
+    return model
 
 
 
@@ -204,7 +194,9 @@ def main(cfg: OmegaConf) -> None:
         transform=transform
     )
 
-
+    # Configuration and Hyperparameters
+    num_epochs = 10  # Example number of epochs
+    learning_rate = 1e-3  # Example learning rate
 
     # Initialize Dataset and DataLoader
     data_loader = DataLoader(dataset, batch_size=cfg.training.batch_size, shuffle=True, num_workers=cfg.training.num_workers, collate_fn=gpu_padded_collate)
@@ -223,22 +215,31 @@ def main(cfg: OmegaConf) -> None:
         subfolder="unet",
     ).to(dtype=weight_dtype, device=device)
     
+    inference_config = OmegaConf.load("configs/inference.yaml")
+        
+    denoising_unet = UNet3DConditionModel.from_pretrained_2d(
+        '/media/2TB/ani/animate-anyone/pretrained_models/sd-image-variations-diffusers', 
+         unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs),
+       subfolder="unet")
+       
+    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse")
 
-    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(dtype=weight_dtype)
 
-    referencenet = ReferenceNet(
+    model = ReferenceNet(
         config=cfg,
         reference_unet=reference_unet,
+        denoising_unet=denoising_unet,
         vae=vae,
         dtype=weight_dtype
     ).to(dtype=weight_dtype, device=device)
+    criterion = nn.MSELoss()  # Use MSE loss for VAE reconstruction
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-
-    # Extract Features
-    extract_features_from_model(referencenet,data_loader,cfg)
+    # Train the model
+    trained_model = train_model(model, data_loader, optimizer, criterion, device, num_epochs, cfg)
 
     # Save the model
-    # torch.save(trained_model.state_dict(), 'frames_encoding_vae_model.pth')
+    torch.save(trained_model.state_dict(), 'frames_encoding_vae_model.pth')
 
 if __name__ == "__main__":
     config = OmegaConf.load("./configs/training/stage1.yaml")
