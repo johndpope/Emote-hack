@@ -72,35 +72,38 @@ def gpu_padded_collate(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     return {'images': images_tensor}
 
 
-
-
-def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cfg):
+# motion frames + reference image is in next training step. 
+# this is more akin training the unet - like a civitai checkpoint model.
+def train_model(model, vae, data_loader, optimizer, criterion, device, num_epochs, cfg):
     model.train()
-
-    # Create the noise scheduler
-    noise_scheduler = DDPMScheduler(
-        num_train_timesteps=cfg.noise_scheduler_kwargs.num_train_timesteps,
-        beta_start=cfg.noise_scheduler_kwargs.beta_start,
-        beta_end=cfg.noise_scheduler_kwargs.beta_end,
-        beta_schedule=cfg.noise_scheduler_kwargs.beta_schedule,
-        steps_offset=cfg.noise_scheduler_kwargs.steps_offset,
-        clip_sample=cfg.noise_scheduler_kwargs.clip_sample,
-    )
 
     for epoch in range(num_epochs):
         running_loss = 0.0
-        signal_to_noise_ratios = []
 
         for batch in data_loader:
             video_frames = batch['images'].to(device)
             
-            # TODO - Apologies for flux in this code 
-            # - the paper seems like the first stage = this https://blog.metaphysic.ai/plausible-stable-diffusion-video-from-a-single-image/
-            # this should be the first stage of the training where we train the reference net
+            # Encode the video frames using the frozen VAE
+            with torch.no_grad():
+                latent_representations = vae.encode(video_frames).latent_dist.sample()
+
+            # Extract reference features using ReferenceNet
+            reference_features = model(latent_representations)
+
+            # Reconstruct the frames using the VAE decoder and reference features
+            reconstructed_frames = vae.decode(latent_representations, reference_features).sample
+
+            # Compute the reconstruction loss
+            loss = criterion(reconstructed_frames, video_frames)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item()
 
         epoch_loss = running_loss / len(data_loader)
-        avg_snr = sum(signal_to_noise_ratios) / len(signal_to_noise_ratios)
-        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}, SNR: {avg_snr:.2f} dB')
+        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}')
 
     return model
 
@@ -138,6 +141,13 @@ def main(cfg: OmegaConf) -> None:
     # Model, Criterion, Optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
+    # Pretrained VAE
+    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(device)
+    vae.eval()  # Set the VAE to evaluation mode (freeze its weights)
+
+
+
     # Reference UNet (ReferenceNet)
     if cfg.weight_dtype == "fp16":
         weight_dtype = torch.float16
@@ -148,33 +158,21 @@ def main(cfg: OmegaConf) -> None:
         '/media/2TB/Emote-hack/pretrained_models/StableDiffusion',
         subfolder="unet",
     ).to(dtype=weight_dtype, device=device)
-    
-    inference_config = OmegaConf.load("configs/inference.yaml")
-        
-    denoising_unet = UNet3DConditionModel.from_pretrained_2d(
-        '/media/2TB/ani/animate-anyone/pretrained_models/sd-image-variations-diffusers', 
-         unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs),
-       subfolder="unet")
-       
-    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse")
-
 
     model = ReferenceNet(
         config=cfg,
         reference_unet=reference_unet,
-        denoising_unet=denoising_unet,
-        vae=vae,
         dtype=weight_dtype
     ).to(dtype=weight_dtype, device=device)
-    criterion = nn.MSELoss()  # Use MSE loss for VAE reconstruction
+
+    criterion = nn.MSELoss()  # Use MSE loss for reconstruction
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-
     # Train the model
-    trained_model = train_model(model, data_loader, optimizer, criterion, device, num_epochs, cfg)
+    trained_model = train_model(model, vae, data_loader, optimizer, criterion, device, num_epochs, cfg)
 
     # Save the model
-    torch.save(trained_model.state_dict(), 'frames_encoding_vae_model.pth')
+    torch.save(trained_model.state_dict(), 'reference_net_model.pth')
 
 if __name__ == "__main__":
     config = OmegaConf.load("./configs/training/stage1.yaml")

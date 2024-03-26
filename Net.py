@@ -42,6 +42,27 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # https://github.com/johndpope/Emote-hack/issues/25
 # this referencenet still needs to be trained - it is the 250 hours / millions of pictures / features that are returned.
 # this code looks like it aligns with paper as it passes features back - but does it need to be in a forward pass? 
+# In this modified ReferenceNet class:
+
+# We add self-attention layers using the TransformerEncoder module. The TransformerEncoder consists of multiple TransformerEncoderLayer instances stacked together.
+# The TransformerEncoderLayer takes the following arguments:
+# d_model: The dimension of the input and output features (set to config.model.latent_dim).
+# nhead: The number of attention heads (set to config.model.num_heads).
+# dim_feedforward: The dimension of the feedforward network (set to config.model.ff_dim).
+# dropout: The dropout probability (set to config.model.dropout).
+# In the forward method, we reshape the latent_representations to (num_frames, batch_size, latent_dim) to match the expected input shape for the TransformerEncoder.
+# We pass the latent_representations through the reference UNet to obtain the initial reference features.
+# We apply the self-attention layers to the reference features using self.self_attn_layers(reference_features). This allows the model to capture dependencies and relationships within the reference features.
+# Finally, we reshape the reference features back to (batch_size, num_frames, latent_dim) before returning them.
+# The self-attention layers in the ReferenceNet serve the following purposes:
+
+# They allow the model to attend to different parts of the latent representations and learn meaningful relationships between frames.
+# Self-attention can capture long-range dependencies, enabling the model to consider the context of the entire sequence when extracting reference features.
+# By incorporating self-attention, the ReferenceNet can potentially learn more expressive and informative reference features that capture the relevant information from the input frames.
+# Make sure to update the configuration file (configs/training/stage1.yaml) to include the necessary hyperparameters for the self-attention layers, such as num_heads, ff_dim, dropout, and num_layers.
+
+# Note that adding self-attention layers increases the computational complexity of the ReferenceNet, so you may need to adjust the batch size and other training settings accordingly.
+
 class ReferenceNet(nn.Module):
     def __init__(self, config, reference_unet, denoising_unet, vae, dtype):
         super(ReferenceNet, self).__init__()
@@ -51,6 +72,17 @@ class ReferenceNet(nn.Module):
         self.dtype = dtype
         self.num_inference_frames = config.data.n_motion_frames  # Number of frames to generate during inference
         self.num_motion_frames = config.data.n_motion_frames  # Number of motion frames
+
+      # Add self-attention layers
+        self.self_attn_layers = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(
+                d_model=config.model.latent_dim,
+                nhead=config.model.num_heads,
+                dim_feedforward=config.model.ff_dim,
+                dropout=config.model.dropout,
+            ),
+            num_layers=config.model.num_layers,
+        )
 
     def pre_extract_motion_features(self, motion_frames,timesteps):
         # Ensure motion_frames have the correct dimensions [N, C, H, W]
@@ -67,35 +99,45 @@ class ReferenceNet(nn.Module):
         return motion_features
     
     # I think this is wrong. To be seen.
-    def forward(self, reference_latent, motion_latents):
-        # Ensure reference_latent and motion_latents have the correct dimensions
-        assert reference_latent.ndim == 4, "Reference latent should have shape [B, C, H, W]"
-        assert motion_latents.ndim == 5, "Motion latents should have shape [B, N, C, H, W]"
-        
-    #     Convert motion latents from RGB to grayscale - IDK - not clear if they used this or not https://github.com/search?q=repo%3AMStypulkowski%2Fdiffused-heads%20grayscale_motion&type=code
-        motion_latents_gray = torch.mean(motion_latents, dim=2, keepdim=True)
+    # def forward(self, reference_latent, motion_latents):
+    #     # Ensure reference_latent and motion_latents have the correct dimensions
+    #     assert reference_latent.ndim == 4, "Reference latent should have shape [B, C, H, W]"
+    #     assert motion_latents.ndim == 5, "Motion latents should have shape [B, N, C, H, W]"
+    # #     Convert motion latents from RGB to grayscale - IDK - not clear if they used this or not https://github.com/search?q=repo%3AMStypulkowski%2Fdiffused-heads%20grayscale_motion&type=code
+    #     motion_latents_gray = torch.mean(motion_latents, dim=2, keepdim=True)
+    #     # Concatenate the reference latent and grayscale motion latents along the channel dimension
+    #     input_latent = torch.cat([reference_latent, motion_latents_gray.view(motion_latents_gray.size(0), -1, *motion_latents_gray.shape[3:])], dim=1)
+    #     # Concatenate the reference latent and motion latents along the channel dimension
+    #     # input_latent = torch.cat([reference_latent, motion_latents.view(motion_latents.size(0), -1, *motion_latents.shape[3:])], dim=1)
+    #     print("input_latent b:",input_latent.size(0))
+    #     print("input_latent c:",input_latent.size(1))
+    #     print("input_latent h:",input_latent.size(2))
+    #     print("input_latent w:",input_latent.size(3))
+    #     # input_latent b: 1
+    #     # input_latent c: 12 - colour 6 - grayscale
+    #     # input_latent h: 64
+    #     # input_latent w: 64
 
-        # Concatenate the reference latent and grayscale motion latents along the channel dimension
-        input_latent = torch.cat([reference_latent, motion_latents_gray.view(motion_latents_gray.size(0), -1, *motion_latents_gray.shape[3:])], dim=1)
+    #     # # Pass the concatenated latent through the first layer of the reference UNet attention layer
+    #     # with torch.no_grad():
+    #     #     first_layer_output = self.reference_unet.down_blocks[0](input_latent, encoder_hidden_states=None)
+    #     # return first_layer_output
 
+    def forward(self, latent_representations):
+        # Reshape latent_representations for self-attention
+        batch_size, num_frames, latent_dim = latent_representations.shape
+        latent_representations = latent_representations.view(num_frames, batch_size, latent_dim)
 
+        # Pass latent_representations through the reference UNet
+        reference_features = self.reference_unet(latent_representations, encoder_hidden_states=None)
 
-        # Concatenate the reference latent and motion latents along the channel dimension
-        # input_latent = torch.cat([reference_latent, motion_latents.view(motion_latents.size(0), -1, *motion_latents.shape[3:])], dim=1)
-        print("input_latent b:",input_latent.size(0))
-        print("input_latent c:",input_latent.size(1))
-        print("input_latent h:",input_latent.size(2))
-        print("input_latent w:",input_latent.size(3))
-        # input_latent b: 1
-        # input_latent c: 12 - colour 6 - grayscale
-        # input_latent h: 64
-        # input_latent w: 64
+        # Apply self-attention layers
+        reference_features = self.self_attn_layers(reference_features)
 
-        # Pass the concatenated latent through the first layer of the reference UNet attention layer
-        with torch.no_grad():
-            first_layer_output = self.reference_unet.down_blocks[0](input_latent, encoder_hidden_states=None)
-        
-        return first_layer_output
+        # Reshape reference_features back to (batch_size, num_frames, latent_dim)
+        reference_features = reference_features.view(batch_size, num_frames, latent_dim)
+
+        return reference_features
 
 class DownsampleBlock(nn.Module):
     def __init__(self, in_channels, out_channels):

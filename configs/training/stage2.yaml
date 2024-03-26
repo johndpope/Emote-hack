@@ -67,6 +67,12 @@ output_dir: './exp_output'
 
 
 model:
+  d_model:
+  latent_dim:
+  num_heads:
+  ff_dim:
+  dropout:
+  
   feature_dim: 512
   num_layers: 4
   audio_feature_dim: 128

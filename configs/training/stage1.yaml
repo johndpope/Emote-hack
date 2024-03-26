@@ -72,3 +72,24 @@ num_speed_buckets: 9
 speed_embedding_dim: 64 
 reference_unet_config: # assign from unet-config 
 denoising_unet_config:
+
+
+
+model:
+
+  latent_dim: 256
+  num_heads: 8
+  ff_dim: 1024
+  dropout: 0.1
+  
+  feature_dim: 512
+  num_layers: 4
+  audio_feature_dim: 128
+  audio_num_layers: 2
+  temporal_module:
+    type: 'VanillaTemporalModule'
+    kwargs:
+      num_attention_heads: 8
+      num_transformer_block: 2
+      attention_block_types: ['Temporal_Self', 'Temporal_Self']
+      temporal_position_encoding: True
