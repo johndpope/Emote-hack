@@ -25,7 +25,7 @@ from torch.utils.data import Dataset
 from torchvision.transforms import ToTensor
 from transformers import Wav2Vec2Model, Wav2Vec2Processor
 from diffusers.models.unets.unet_2d_blocks import CrossAttnDownBlock2D, CrossAttnUpBlock2D, DownBlock2D, UpBlock2D
-
+from models.motionmodule import VanillaTemporalModule
 
 # Use decord's CPU or GPU context
 # For GPU: decord.gpu(0)
@@ -40,6 +40,8 @@ os.environ["OPENCV_LOG_LEVEL"]="FATAL"
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # https://github.com/johndpope/Emote-hack/issues/25
+# this referencenet still needs to be trained - it is the 250 hours / millions of pictures / features that are returned.
+# this code looks like it aligns with paper as it passes features back - but does it need to be in a forward pass? 
 class ReferenceNet(nn.Module):
     def __init__(self, config, reference_unet, denoising_unet, vae, dtype):
         super(ReferenceNet, self).__init__()
@@ -64,6 +66,7 @@ class ReferenceNet(nn.Module):
         
         return motion_features
     
+    # I think this is wrong. To be seen.
     def forward(self, reference_latent, motion_latents):
         # Ensure reference_latent and motion_latents have the correct dimensions
         assert reference_latent.ndim == 4, "Reference latent should have shape [B, C, H, W]"
@@ -377,18 +380,25 @@ class BackboneNetwork(nn.Module):
     process. It ensures seamless frame transitions and consistent identity throughout the
     video by applying reference-attention layers and managing temporal consistency with
     temporal modules.
+
+    Based on the provided code and the AnimateDiff framework, the most appropriate temporal module to use in the EMO architecture is the VanillaTemporalModule.
+    The VanillaTemporalModule is a temporal attention module that incorporates positional encoding and self-attention to capture temporal dependencies between frames. It is designed to be inserted into the backbone network (Denoising UNet) at each resolution level.
     """
-    def __init__(self, feature_dim, num_layers, reference_net, audio_attention_layers, temporal_module):
+    def __init__(self, feature_dim, num_layers, reference_net, audio_attention_layers, temporal_module_kwargs=None):
         super(BackboneNetwork, self).__init__()
         # Existing network architecture components go here...
         self.feature_dim = feature_dim
         self.reference_net = reference_net
         self.audio_attention_layers = audio_attention_layers
-        self.temporal_module = temporal_module
         self.num_layers = num_layers
         # Initialize layers for Reference Attention, Audio Attention and Temporal Modules
         self.reference_attention_layers = nn.ModuleList([ReferenceAttentionLayer(feature_dim) for _ in range(num_layers)])
-        # ... Other components of the BackboneNetwork
+        
+        # Initialize temporal modules at each resolution level
+        self.temporal_modules = nn.ModuleList()
+        for _ in range(num_layers):
+            self.temporal_modules.append(VanillaTemporalModule(in_channels=feature_dim, **temporal_module_kwargs))
+       
 
     def forward(self, latent_code, audio_features, ref_image):
         # Extract reference features from the reference image
@@ -401,10 +411,9 @@ class BackboneNetwork(nn.Module):
         # Apply audio-attention layers after each reference-attention layer
         latent_code = self.audio_attention_layers(latent_code, audio_features)
 
-        # Apply temporal modules
-        latent_code = self.temporal_module(latent_code)
-
-        # ... The rest of the forward pass
+        for module in self.temporal_modules:
+            latent_code = module(latent_code, temb=None, encoder_hidden_states=None, attention_mask=None)
+   
         return latent_code
     
 class EMOModel(ModelMixin):
@@ -437,6 +446,14 @@ class EMOModel(ModelMixin):
             use_motion_module=True,
             motion_module_type='simple',
             motion_module_kwargs=config.denoising_unet_config.get("motion_module_kwargs"),
+            temporal_module_type='simple',  # Specify the desired temporal module type
+            temporal_module_kwargs={
+                "num_attention_heads": 8,
+                "num_transformer_block": 2,
+                "attention_block_types": ("Temporal_Self", "Temporal_Self"),
+                "temporal_position_encoding": True,
+            }
+
         )
 
         # Face Region Controller

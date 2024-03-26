@@ -5,6 +5,15 @@ data:
   sample_rate: 4 
   n_sample_frames: 24
 
+training:
+  batch_size: 2
+  num_workers: 0
+  learning_rate: 1.0e-5
+  num_epochs: 2
+  use_gpu_video_tensor: True
+  prev_frames: 2  # Add this line to specify the number of previous frames to consider
+  video_data_dir: '/home/oem/Downloads/CelebV-HQ/celebvhq/35666'
+  
 solver:
   gradient_accumulation_steps: 1
   mixed_precision: 'fp16'
@@ -55,3 +64,17 @@ resume_from_checkpoint: ''
 checkpointing_steps: 2000
 exp_name: 'stage2'
 output_dir: './exp_output' 
+
+
+model:
+  feature_dim: 512
+  num_layers: 4
+  audio_feature_dim: 128
+  audio_num_layers: 2
+  temporal_module:
+    type: 'VanillaTemporalModule'
+    kwargs:
+      num_attention_heads: 8
+      num_transformer_block: 2
+      attention_block_types: ['Temporal_Self', 'Temporal_Self']
+      temporal_position_encoding: True

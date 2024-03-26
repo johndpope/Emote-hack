@@ -5,7 +5,14 @@ data:
   sample_margin: 30  
   sample_rate: 4 
   n_sample_frames: 2
-
+training:
+  batch_size: 2
+  num_workers: 0
+  learning_rate: 1.0e-5
+  num_epochs: 2
+  use_gpu_video_tensor: True
+  prev_frames: 2  # Add this line to specify the number of previous frames to consider
+  video_data_dir: '/home/oem/Downloads/CelebV-HQ/celebvhq/35666'
 solver:
   gradient_accumulation_steps: 1
   mixed_precision: 'fp16'

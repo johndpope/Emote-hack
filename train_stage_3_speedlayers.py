@@ -16,6 +16,22 @@ from Net import FaceLocator, EMODataset, FramesEncodingVAE, BackboneNetwork, Aud
 from decord import AudioReader
 
 
+# Stage 3: Speed Control and Face Region Refinement
+# see https://github.com/johndpope/Emote-hack/issues/28 - 
+# we maybe able to use the Alibaba animateAnything mask conditioning model - pretrained to basically replace the loaded unet.
+
+# Objective: Incorporate speed control and refine the generation of face regions.
+# Input: Video frames, audio frames, and speed information from the training dataset.
+# Model Components:
+# Speed Layers: Modules that control the speed of motion in the generated frames based on the input speed information.
+# Face Locator: A module that refines the generation of face regions in the frames.
+# Training Procedure:
+# The backbone network from Stage 2 is used as the starting point.
+# The speed layers and face locator are added to the model.
+# The model is trained to generate video frames conditioned on the reference image, audio features, and speed information.
+# The reconstruction loss and additional losses for speed control and face region refinement are used to optimize the model parameters.
+# Output: Final trained EMO model that can generate expressive talking head videos with speed control and refined face regions.
+
 
 def gpu_padded_collate(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     assert isinstance(batch, list), "Batch should be a list"
@@ -114,7 +130,7 @@ def main(cfg: OmegaConf) -> None:
         sample_rate=cfg.data.sample_rate,
         img_scale=(1.0, 1.0),
         data_dir='./images_folder',
-        video_dir='/home/oem/Downloads/CelebV-HQ/celebvhq/35666',
+        video_dir=cfg.training.video_data_dir,
         json_file='./data/overfit.json',
         #json_file='./data/celebvhq_info.json',
         stage='stage3-speedlayers',

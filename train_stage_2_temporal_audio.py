@@ -17,7 +17,23 @@ import torch.optim as optim
 import yaml
 from einops import rearrange
 import torchvision.transforms as transforms
+from Net import FaceLocator, EMODataset, BackboneNetwork, AudioAttentionLayers
 
+
+# Stage 2: Temporal and Audio Integration
+
+# Objective: Incorporate temporal information and audio features into the backbone network.
+# Input: Video frames and corresponding audio frames from the training dataset.
+# Model Components:
+# Backbone Network: A modified UNet-like architecture that takes latent frame representations as input.
+# Temporal Modules: Modules that capture temporal dependencies between frames, such as the VanillaTemporalModule inspired by AnimateDiff.
+# Audio Attention Layers: Layers that integrate audio features into the backbone network using attention mechanisms.
+# Training Procedure:
+# The backbone network is initialized with the pretrained ReferenceNet from Stage 1.
+# The temporal modules are initialized with pretrained weights from AnimateDiff (if available).
+# The model is trained to generate video frames conditioned on the reference image and audio features.
+# The reconstruction loss is used to optimize the model parameters.
+# Output: Pretrained backbone network with temporal modules and audio attention layers.
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -136,12 +152,10 @@ def train_model(model, data_loader, optimizer, criterion, device, num_epochs, cf
 
    
                 # Pass the reference latent and motion latents through the ReferenceNet
-                first_layer_output = model(reference_latent, motion_latents)
+                first_layer_output = model(reference_latent, motion_latents) # yes - this is blowing up
                 print("first_layer_output:",first_layer_output)
                 
                 # send to the backbone.
-
-
 
                 # Add noise to the latents
                 # noisy_latents = noise_scheduler.add_noise(reference_latent, torch.randn_like(reference_latent), timesteps)
@@ -235,6 +249,38 @@ def main(cfg: OmegaConf) -> None:
     criterion = nn.MSELoss()  # Use MSE loss for VAE reconstruction
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
+    
+    # AnimateDiff pretrained weights - not sure how to load these
+    # Initialize the Backbone Network with Temporal Modules and Audio Layers
+    # backbone_network = BackboneNetwork(
+    #     feature_dim=cfg.model.feature_dim,
+    #     num_layers=cfg.model.num_layers,
+    #     reference_net=vae_model.reference_net,
+    #     audio_attention_layers=AudioAttentionLayers(
+    #         feature_dim=cfg.model.audio_feature_dim,
+    #         num_layers=cfg.model.audio_num_layers
+    #     ),
+    #     temporal_module=cfg.model.temporal_module
+    # ).to(device)
+    # Load the pretrained AnimateDiff weights for temporal modules
+    # animatediff_weights = torch.load('animatediff_weights.pth')
+
+
+# construct pipe from imag evariation diffuser
+    #pipe = StableDiffusionImageVariationPipeline.from_pretrained('/media/2TB/ani/animate-anyone/pretrained_models/sd-image-variations-diffusers', revision="v2.0", vae=vae).to(device)
+    
+    #video_net = VideoNet(pipe.unet, num_frames=num_frames).to("cuda")
+
+        # load mm pretrained weights from animatediff
+    #load_mm(video_net, torch.load('/media/2TB/stable-diffusion-webui/extensions/sd-webui-animatediff/model/v3_sd15_mm.ckpt'))
+
+   # for name, module in video_net.named_modules():
+    #        print(f" name:{name} layer:{module.__class__.__name__}")
+
+   # for i, module in enumerate(backbone_network.temporal_modules):
+   #     module.load_state_dict(animatediff_weights[f'temporal_module_{i}'])
+
+
     # Train the model
     trained_model = train_model(model, data_loader, optimizer, criterion, device, num_epochs, cfg)
 
@@ -242,5 +288,5 @@ def main(cfg: OmegaConf) -> None:
     torch.save(trained_model.state_dict(), 'frames_encoding_vae_model.pth')
 
 if __name__ == "__main__":
-    config = OmegaConf.load("./configs/training/stage1.yaml")
+    config = OmegaConf.load("./configs/training/stage2.yaml")
     main(config)
