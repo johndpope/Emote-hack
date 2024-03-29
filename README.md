@@ -4,6 +4,13 @@
 using chatgpt to reverse engineer code from HumanAIGC/EMO white paper. Work in progress - WIP
 
 
+
+# UPDATE - AniPortrait achieves near EMO like results.
+https://github.com/Zejun-Yang/AniPortrait
+Here's a sample I made using the vid2vid - works fine.
+https://drive.google.com/file/d/1HaHPZbllOVPhbGkvV3aHLtcEew9CZGUV/view?usp=sharing
+![Image](https://private-user-images.githubusercontent.com/289994/317962559-265b28ae-f16f-47ba-883d-4d3ae82d176d.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3MTE2OTA4NDAsIm5iZiI6MTcxMTY5MDU0MCwicGF0aCI6Ii8yODk5OTQvMzE3OTYyNTU5LTI2NWIyOGFlLWYxNmYtNDdiYS04ODNkLTRkM2FlODJkMTc2ZC5wbmc_WC1BbXotQWxnb3JpdGhtPUFXUzQtSE1BQy1TSEEyNTYmWC1BbXotQ3JlZGVudGlhbD1BS0lBVkNPRFlMU0E1M1BRSzRaQSUyRjIwMjQwMzI5JTJGdXMtZWFzdC0xJTJGczMlMkZhd3M0X3JlcXVlc3QmWC1BbXotRGF0ZT0yMDI0MDMyOVQwNTM1NDBaJlgtQW16LUV4cGlyZXM9MzAwJlgtQW16LVNpZ25hdHVyZT01ZGIyYzFiMGM3MWUyNjQ0NjA1ZGQ4OThiZDBlYzFmMDM5NDVjOGExODQ2NGFjNWE2YTJhNzcxMzA5YzM4MDE2JlgtQW16LVNpZ25lZEhlYWRlcnM9aG9zdCZhY3Rvcl9pZD0wJmtleV9pZD0wJnJlcG9faWQ9MCJ9.xQoPWWmnwcxi3SQ5Cy9Y005SPY-1zMNyLMkRXh5J0g8)
+
 ![Image](https://github.com/johndpope/Emote-hack/assets/289994/0d758a3a-841f-4849-b58c-439dda05c9a7)
 
 
