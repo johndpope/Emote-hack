@@ -6,6 +6,8 @@ training:
   batch_size: 2
   learning_rate: 1.0e-4
   num_epochs: 100
+  use_many_xrefs: False
+  every_xref_frames: 2
 
   
 # Dataset parameters

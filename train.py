@@ -95,7 +95,7 @@ class EmoTrainer:
 
         # Prepare models and optimizer
         self.optimizer = optim.AdamW(
-            list(self.backbone_unet.parameters()) + list(self.reference_unet.parameters()),
+            list(self.model.backbone_unet.parameters()) + list(self.model.reference_unet.parameters()),
             lr=config.training.learning_rate,
         )
 
