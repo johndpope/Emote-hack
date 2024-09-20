@@ -1,0 +1,230 @@
+AniPortrait: Audio-Driven Synthesis of
+Photorealistic Portrait Animation
+Huawei Wei*, Zejun Yang*, and Zhisheng Wang
+Tencent
+{huaweiwei,zejunyang,plorywang}@tencent.com
+Abstract. In this study, we propose AniPortrait, a novel framework for
+generating high-quality animation driven by audio and a reference portrait image. Our methodology is divided into two stages. Initially, we extract 3D intermediate representations from audio and project them into
+a sequence of 2D facial landmarks. Subsequently, we employ a robust
+diffusion model, coupled with a motion module, to convert the landmark
+sequence into photorealistic and temporally consistent portrait animation. Experimental results demonstrate the superiority of AniPortrait in
+terms of facial naturalness, pose diversity, and visual quality, thereby
+offering an enhanced perceptual experience. Moreover, our methodology exhibits considerable potential in terms of flexibility and controllability, which can be effectively applied in areas such as facial motion editing or face reenactment. We release code and model weights
+at https://github.com/Zejun-Yang/AniPortrait.
+1 Introduction
+The creation of realistic and expressive portrait animations from audio and static
+images has a range of applications, spanning from virtual reality and gaming to
+digital media. Yet, the production of high-quality animations that are visually
+captivating and maintain temporal consistency presents a significant challenge.
+This complexity arises from the need for intricate coordination of lip movements,
+facial expressions, and head positions to craft a visually compelling effect.
+Existing methods have often fallen short in overcoming this challenge, primarily due to their reliance on limited-capacity generators for visual content creation,
+such as GANs[3,17], NeRF[14,13], or motion-based decoders[16,8]. These networks exhibit limited generalization capabilities and often lack stability in generating high-quality content. Recently, the emergence of diffusion models[2,5,9]
+has facilitated the generation of high-quality images. Some studies have built
+upon this by incorporating temporal modules, enabling diffusion models to excel in creating compelling videos.
+Building upon the advancements of diffusion models, we introduce AniPortrait, a novel framework designed to generate high-quality animated portraits
+driven by audio and a reference image. AniPortrait is divided into two distinct stages. In the first stage, we employ transformer-based models to extract
+1 *Equal contribution.
+arXiv:2403.17694v1 [cs.CV] 26 Mar 20242 Wei et al.
+a sequence of 3D facial mesh and head pose from the audio input, which are
+subsequently projected into a sequence of 2D facial landmarks. This stage is
+capable of capturing subtle expressions and lip movements from the audio, in
+addition to head movements that synchronize with the audio’s rhythm. In the
+subsequent stage, we utilize a robust diffusion model[9], integrated with a motion module[4], to transform the facial landmark sequence into a temporally
+consistent and photorealistic animated portrait. Specifically, we draw upon the
+network architecture from AnimateAnyone[6], which utilizes a potent diffusion
+model, Stable Diffusion 1.5, to generate fluid and lifelike videos based on a body
+motion sequence and a reference image. Of particular note is our redesign of
+the pose guider module within this network. This modification not only maintains a lightweight design but also exhibits heightened precision in generating
+lip movements.
+Our experimental results show the superiority of AniPortrait in creating animations with impressive facial naturalness, varied poses, and excellent visual
+quality. By employing 3D facial representations as intermediate features, we
+gain the flexibility to modify these representations as required. This adaptability greatly enhances the applicability of our framework in domains like facial
+motion editing and facial reenactment.Audio
+Audio2Pose
+Audio2Mesh
+Mesh Offset
+Head Pose
+Project
+Reference Image Neutral Mesh
+...
+Target Pose Images
+Target Meshes
+Reference Unet
+VAE
+Encoder
+VAE
+Decoder
+Noisy Latent
+Pose Guider
+Target Pose Images
+Denoising Unet
+Target Video
+Reference Pose Image
+ResNet Cross Attention Motion Module
+...
+Iteratively Denoise
+Lmk2Video
+Audio2Lmk
+Fig. 1. Overview of the proposed method. Our framework is divided into two stages.
+Firstly, we extract the 3D facial mesh and head pose from the audio, and subsequently
+project these two elements into 2D keypoints. In the second stage, we utilize a diffusion
+model to transform the 2D keypoints into a portrait video. These two stages are trained
+concurrently within our framework.AniPortrait 3
+2 Method
+The proposed framework comprises two modules, namely Audio2Lmk and Lmk2Video.
+The former is designed to extract a sequence of landmarks that captures intricate
+facial expressions and lip movements from audio input. The latter utilizes this
+landmark sequence to generate high-quality portrait videos with temporal stability. We present an overview of the framework in Figure 1 and provide further
+details below.
+2.1 Audio2Lmk
+Let A1:T = a1, . . . , aT  denotes a sequence of speech snippets, our goal is to
+predict the corresponding 3D facial mesh sequence M1:T = m1, . . . , mT , where
+each mt ∈ RN ×3, and pose sequence P1:T = p1, . . . , pT , with each pt being a
+6-dim vector representing rotation and translation.
+We employ the pre-trained wav2vec[1] to extract audio features. This model
+exhibits a high degree of generalizability and is capable of accurately recognizing pronunciation and intonation from the audio, which plays a pivotal role in
+generating realistic facial animations. By leveraging the acquired robust speech
+features, we can effectively employ a simple architecture consisting of two fc layers to convert these features into 3D facial meshes. We have observed that this
+straightforward design not only ensures accuracy but also enhances the efficiency
+of the inference process.
+In the task of converting audio to pose, we employ the same wav2vec network
+as the backbone. However, we do not share the weights with the audio-to-mesh
+module. This is due to the fact that pose is more closely associated with the
+rhythm and tone present in the audio, which is a different emphasis compared to
+the audio-to-mesh task. To account for the impact of previous states, we employ
+a transformer[11] decoder to decode the pose sequence. During this process, the
+audio features are integrated into the decoder using cross-attention mechanisms.
+For both of the above modules, we train them using simple L1 loss.
+After obtaining the mesh and pose sequence, we employ perspective projection to transform them into a 2D sequence of facial landmarks. These landmarks
+are subsequently utilized as input signals for the next stage.
+2.2 Lmk2Video
+Given a reference portrait image, denoted as Iref , and a sequence of facial landmarks represented as L1:T = l1, . . . , lT  where each lt ∈ RN ×2, our proposed
+Lmk2Video module creates a temporally consistent portrait animation. This
+animation aligns the motion with the landmark sequence and maintains an appearance that is consistent with the reference image. We represent the portrait
+animation as a sequence of portrait frames, denoted as I1:T = I1, . . . , IT .
+The design of Lmk2Video’s network structure draws inspiration from AnimateAnyone. We utilize SD1.5 as the backbone, incorporating a temporal motion module that effectively converts multi-frame noise inputs into a sequence of4 Wei et al.
+video frames. Concurrently, a ReferenceNet, mirroring the structure of SD1.5,
+is employed to extract appearance information from the reference image and
+integrate it into the backbone. This strategic design ensures the face ID remains
+consistent throughout the output video. Difference from AnimateAnyone, we
+enhance the complexity of the PoseGuider’s design. The original version merely
+incorporates a few convolution layers, after which the landmark features merge
+with the latents at the backbone’s input layer. We discover that this rudimentary
+design falls short in capturing the intricate movements of the lips. Consequently,
+we adopt ControlNet’s[15] multi-scale strategy, incorporating landmark features
+of corresponding scales into different blocks of the backbone. Despite these enhancements, we successfully keep the parameter count relatively low.
+We also introduce an additional improvement: the inclusion of the reference
+image’s landmark as an extra input. The PoseGuider’s cross-attention module
+facilitates interaction between the reference landmarks and each frame’s target
+landmarks. This process provides the network with additional cues to comprehend the correlation between facial landmarks and appearance, thereby assisting
+in the generation of portrait animations with more precise motion.
+3 Experiments
+3.1 Implementation Details
+In the Audio2Lmk stage, we adopt wav2vec2.0 as our backbone. We leverage
+MediaPipe[7] to extract 3D meshes and 6D poses for annotations. The training
+data for Audio2Mesh comes from our internal dataset, which comprises nearly an
+hour of high-quality speech data from a single speaker. To ensure the stability
+of the 3D mesh extracted by MediaPipe, we instruct the actor to maintain a
+steady head position, facing the camera throughout the recording process. We
+train Audio2Pose using HDTF[18]. All training operations are performed on a
+single A100, utilizing the Adam optimizer with a learning rate of 1e-5.
+In the Lmk2Video process, we implement a two-step training approach. During the initial step, we focus on training the 2D component of the backbone,
+ReferenceNet, and PoseGuider, leaving out the motion module. In the subsequent step, we freeze all other components and concentrate on the training of
+the motion module. We make use of two large-scale, high-quality facial video
+datasets, VFHQ[12] and CelebV-HQ[19] to train the model. All data undergoes
+processing via MediaPipe to extract 2D facial landmarks. To enhance the network’s sensitivity to lip movements, we differentiate the upper and lower lips
+with distinct colors when rendering the pose image from 2D landmarks. All
+images are resized to 512x512 resolution. We utilize 4 A100 GPUs for model
+training, dedicating two days to each step. The AdamW optimizer is employed,
+with a consistent learning rate of 1e-5.
+3.2 Results
+As depicted in Figure 2, our method generates a series of animations that are
+striking in both quality and realism. We utilize an intermediate 3D representa-AniPortrait 5
+tion, which can be edited to manipulate the final output. For instance, we can
+extract landmarks from a source and alter its ID, thereby enabling us to create
+a face reenactment effect.Audio
+Driven
+Self
+Driven
+Face
+Reenac
+-ment
+Ref Image Generated Frames Ref Image Generated Frames
+Ref Image
+Ground Truth Frames
+Generated Frames Ref Image
+Ground Truth Frames
+Generated Frames
+Ref Image
+Source Frames
+Generated Frames Ref Image
+Source Frames
+Generated Frames
+Fig. 2. Results of our method.
+4 Conclusion and Future Work
+This research presents a diffusion model-based framework for portrait animation. By simply inputting an audio clip and a reference image, the framework
+is capable of generating a portrait video that features smooth lip motion and
+natural head movements. Leveraging the robust generalization abilities of the
+diffusion model, the animations created by this framework display impressively
+realistic image quality and convincingly lifelike motion. However, this method
+necessitates the use of intermediate 3D representations, and the cost of obtaining
+large-scale, high-quality 3D data is quite high. As a result, the facial expressions
+and head postures in the generated portrait videos can’t escape the uncanny
+valley effect. In the future, we plan to follow the approach of EMO[10] , predicting portrait videos directly from audio, in order to achieve more stunning
+generation results.
+References
+1. Baevski, A., Zhou, Y., Mohamed, A., Auli, M.: wav2vec 2.0: A framework for
+self-supervised learning of speech representations. Advances in neural information
+processing systems 33, 12449–12460 (2020)6 Wei et al.
+2. Dhariwal, P., Nichol, A.: Diffusion models beat gans on image synthesis. Advances
+in neural information processing systems 34, 8780–8794 (2021)
+3. Guan, J., Zhang, Z., Zhou, H., Hu, T., Wang, K., He, D., Feng, H., Liu, J., Ding,
+E., Liu, Z., et al.: Stylesync: High-fidelity generalized and personalized lip sync in
+style-based generator. In: Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition. pp. 1505–1515 (2023)
+4. Guo, Y., Yang, C., Rao, A., Wang, Y., Qiao, Y., Lin, D., Dai, B.: Animatediff:
+Animate your personalized text-to-image diffusion models without specific tuning.
+arXiv preprint arXiv:2307.04725 (2023)
+5. Ho, J., Jain, A., Abbeel, P.: Denoising diffusion probabilistic models. Advances in
+neural information processing systems 33, 6840–6851 (2020)
+6. Hu, L., Gao, X., Zhang, P., Sun, K., Zhang, B., Bo, L.: Animate anyone: Consistent
+and controllable image-to-video synthesis for character animation. arXiv preprint
+arXiv:2311.17117 (2023)
+7. Lugaresi, C., Tang, J., Nash, H., McClanahan, C., Uboweja, E., Hays, M., Zhang,
+F., Chang, C.L., Yong, M.G., Lee, J., et al.: Mediapipe: A framework for building
+perception pipelines. arXiv preprint arXiv:1906.08172 (2019)
+8. Ma, Y., Zhang, S., Wang, J., Wang, X., Zhang, Y., Deng, Z.: Dreamtalk: When
+expressive talking head generation meets diffusion probabilistic models. arXiv
+preprint arXiv:2312.09767 (2023)
+9. Rombach, R., Blattmann, A., Lorenz, D., Esser, P., Ommer, B.: High-resolution
+image synthesis with latent diffusion models. In: Proceedings of the IEEE/CVF
+conference on computer vision and pattern recognition. pp. 10684–10695 (2022)
+10. Tian, L., Wang, Q., Zhang, B., Bo, L.: Emo: Emote portrait alive-generating expressive portrait videos with audio2video diffusion model under weak conditions.
+arXiv preprint arXiv:2402.17485 (2024)
+11. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.N., Kaiser,
+L., Polosukhin, I.: Attention is all you need. Advances in neural information processing systems 30 (2017)
+12. Xie, L., Wang, X., Zhang, H., Dong, C., Shan, Y.: Vfhq: A high-quality dataset
+and benchmark for video face super-resolution. In: Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition. pp. 657–666 (2022)
+13. Ye, Z., He, J., Jiang, Z., Huang, R., Huang, J., Liu, J., Ren, Y., Yin, X., Ma, Z.,
+Zhao, Z.: Geneface++: Generalized and stable real-time audio-driven 3d talking
+face generation. arXiv preprint arXiv:2305.00787 (2023)
+14. Ye, Z., Jiang, Z., Ren, Y., Liu, J., He, J., Zhao, Z.: Geneface: Generalized and highfidelity audio-driven 3d talking face synthesis. arXiv preprint arXiv:2301.13430
+(2023)
+15. Zhang, L., Rao, A., Agrawala, M.: Adding conditional control to text-to-image
+diffusion models. In: Proceedings of the IEEE/CVF International Conference on
+Computer Vision. pp. 3836–3847 (2023)
+16. Zhang, W., Cun, X., Wang, X., Zhang, Y., Shen, X., Guo, Y., Shan, Y., Wang, F.:
+Sadtalker: Learning realistic 3d motion coefficients for stylized audio-driven single
+image talking face animation. In: Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition. pp. 8652–8661 (2023)
+17. Zhang, Z., Hu, Z., Deng, W., Fan, C., Lv, T., Ding, Y.: Dinet: Deformation inpainting network for realistic face visually dubbing on high resolution video. In:
+Proceedings of the AAAI Conference on Artificial Intelligence. vol. 37, pp. 3543–
+3551 (2023)AniPortrait 7
+18. Zhang, Z., Li, L., Ding, Y., Fan, C.: Flow-guided one-shot talking face generation
+with a high-resolution audio-visual dataset. In: Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition. pp. 3661–3670 (2021)
+19. Zhu, H., Wu, W., Zhu, W., Jiang, L., Tang, S., Zhang, L., Liu, Z., Loy, C.C.:
+Celebv-hq: A large-scale video facial attributes dataset. In: European conference
+on computer vision. pp. 650–667. Springer (2022)

@@ -1,0 +1,55 @@
+
+training:
+
+  load_checkpoint: False  # Set this to true when you want to load from a checkpoint
+  checkpoint_path: './checkpoints/checkpoint.pth'
+  batch_size: 2
+  learning_rate: 1.0e-4
+  num_epochs: 100
+
+  
+# Dataset parameters
+dataset:
+  # celeb-hq torrent https://github.com/johndpope/MegaPortrait-hack/tree/main/junk
+  root_dir: "/media/oem/12TB/Downloads/CelebV-HQ/celebvhq/35666" # for overfitting M2Ohb0FAaJU_1.mp4 use https://github.com/johndpope/MegaPortrait-hack/tree/main/junk
+  json_file: './data/overfit.json'  # Selena Gomez
+  extracted_frames: "./celebvhq/35666/images/"
+  # json_file: './data/celebvhq_info.json' # 35k
+
+# Checkpointing
+checkpoints:
+  dir: "./checkpoints"
+  interval: 10
+
+# Logging and visualization
+logging:
+  log_every: 250
+  sample_every: 100
+  sample_size: 2 # for images on wandb
+  output_dir: "./samples"
+  visualize_every: 100  # Visualize latent tokens every 100 batches
+  print_model_details: False
+
+
+# Accelerator settings
+accelerator:
+  mixed_precision: "no"  # Options: "no", "fp16", "bf16"
+  cpu: false
+  num_processes: 1  # Set to more than 1 for multi-GPU training
+
+# Discriminator parameters
+discriminator:
+  ndf: 64  # Number of filters in the first conv layer
+
+# Optimizer parameters
+optimizer:
+  beta1: 0.5
+  beta2: 0.999
+
+# Loss function
+loss:
+  type: "hinge"  # Changed to Wasserstein loss for WGAN-GP
+  weights:
+      perceptual: [10, 10, 10, 10, 10]
+      equivariance_shift: 10
+      equivariance_affine: 10
