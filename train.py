@@ -26,37 +26,93 @@ from transformers import Adafactor
 from WebVid10M import WebVid10M
 from diffusers import AutoencoderKL, DDPMScheduler
 from diffusers import UNet2DConditionModel
+from diffusers import UNet2DModel
+
+from diffusers.models.attention import CrossAttention
 
 
 def load_config(config_path):
     return OmegaConf.load(config_path)
 
+from Net import Wav2VecFeatureExtractor,FaceLocator,SpeedEncoder
+
+
+class CustomUNet(UNet2DConditionModel):
+    def __init__(self, config):
+        super().__init__(**config)
+        # Modify the cross-attention layers to include reference-attention
+        for block in self.down_blocks + self.up_blocks:
+            for layer in block.attentions:
+                layer.transformer_blocks[0].attn1 = CrossAttention(
+                    query_dim=layer.transformer_blocks[0].attn1.query_dim,
+                    cross_attention_dim=layer.transformer_blocks[0].attn1.query_dim,
+                    heads=layer.transformer_blocks[0].attn1.heads,
+                    dim_head=layer.transformer_blocks[0].attn1.dim_head,
+                    dropout=layer.transformer_blocks[0].attn1.dropout,
+                )
+
 
 class EMOModel(nn.Module):
-    def __init__(self, vae, backbone_unet, reference_unet):
+    def __init__(self, config):
         super(EMOModel, self).__init__()
-        self.vae = vae
-        self.backbone_unet = backbone_unet
-        self.reference_unet = reference_unet
+        self.config = config
 
-    def forward(self, x_current, x_reference, timesteps, scheduler):
-        # Encode frames using VAE
+        # Load the pretrained VAE (weights frozen)
+        self.vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse")
+        self.vae.eval()  # Freeze weights
+
+        # Load the ReferenceNet (weights initialized from SD UNet)
+        self.reference_unet =  UNet2DConditionModel.from_pretrained(
+            '/media/2TB/Emote-hack/pretrained_models/StableDiffusion/stable-diffusion-v1-5',
+            subfolder="unet",
+        )
+        self.reference_unet.requires_grad_(False)  # Freeze ReferenceNet during Stage 1
+
+        # Load the Backbone Network (initialize weights from SD UNet)
+        unet_config = self.reference_unet.config
+        self.backbone_unet = CustomUNet(unet_config)
+
+        # Initialize Backbone UNet weights from SD UNet
+        self.backbone_unet.load_state_dict(self.reference_unet.state_dict())
+
+        # Scheduler
+        self.scheduler = DDPMScheduler(num_train_timesteps=1000)
+
+    def forward(self, x_current, x_reference, timesteps):
+        # Encode x_current and x_reference using VAE
         with torch.no_grad():
-            target_latent = self.vae.encode(x_current).latent_dist.sample() * 0.18215
-            reference_latent = self.vae.encode(x_reference).latent_dist.sample() * 0.18215
+            z_current = self.vae.encode(x_current).latent_dist.sample() * 0.18215
+            z_reference = self.vae.encode(x_reference).latent_dist.sample() * 0.18215
 
-        # Add noise to target latents
-        noise = torch.randn_like(target_latent)
-        noisy_target_latents = scheduler.add_noise(target_latent, noise, timesteps)
+        # Add noise to z_current
+        noise = torch.randn_like(z_current)
+        z_noisy = self.scheduler.add_noise(z_current, noise, timesteps)
 
-        # Extract reference features using ReferenceNet
-        ref_outputs = self.reference_unet(reference_latent, timesteps)
-        reference_features = ref_outputs.sample
+        # Get reference features from ReferenceNet
+        with torch.no_grad():
+            ref_outputs = self.reference_unet(
+                sample=z_reference,
+                timestep=timesteps,
+                encoder_hidden_states=None,
+                return_dict=True,
+                output_hidden_states=True,
+            )
+            reference_hidden_states = ref_outputs.hidden_states  # Tuple of hidden states
 
-        # Predict noise using Backbone Network
-        noise_pred = self.backbone_unet(noisy_target_latents, timesteps, encoder_hidden_states=reference_features).sample
+        # Pass z_noisy and reference_hidden_states to the Backbone UNet
+        backbone_outputs = self.backbone_unet(
+            sample=z_noisy,
+            timestep=timesteps,
+            encoder_hidden_states=None,
+            cross_attention_kwargs={'encoder_hidden_states': reference_hidden_states},
+            return_dict=True,
+        )
+
+        noise_pred = backbone_outputs.sample
 
         return noise_pred, noise
+
+
 
 
 class EmoTrainer:
@@ -66,30 +122,15 @@ class EmoTrainer:
         self.train_dataloader = train_dataloader
         self.accelerator = accelerator
 
-        # Load the pretrained VAE (weights frozen)
-        vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse")
-        vae.eval()  # Set to evaluation mode to freeze weights
-
-        # Initialize Backbone Network (denoising UNet)
-        backbone_unet = UNet2DConditionModel.from_pretrained(
-            '/media/2TB/Emote-hack/pretrained_models/StableDiffusion/stable-diffusion-v1-5',
-            subfolder="unet",
-        )
-
-        # Initialize ReferenceNet (similar to Backbone Network)
-        reference_unet = UNet2DConditionModel.from_pretrained(
-            '/media/2TB/Emote-hack/pretrained_models/StableDiffusion/stable-diffusion-v1-5',
-            subfolder="unet",
-        )
 
         # Initialize EMOModel
-        self.model = EMOModel(vae=vae, backbone_unet=backbone_unet, reference_unet=reference_unet)
+        self.model = EMOModel()
 
 
         # Initialize the scheduler
-        scheduler = DDPMScheduler(num_train_timesteps=1000)
+        self.scheduler = DDPMScheduler(num_train_timesteps=1000)
 
-        self.perceptual_loss_fn = lpips.LPIPS(net='alex', spatial=True).to(accelerator.device)
+        # self.perceptual_loss_fn = lpips.LPIPS(net='alex', spatial=True).to(accelerator.device)
         self.pixel_loss_fn = nn.L1Loss()
 
 
@@ -99,28 +140,47 @@ class EmoTrainer:
             lr=config.training.learning_rate,
         )
 
-        self.model,self.optimizer,  self.train_dataloader = accelerator.prepare(
-           self.model,self.optimizer,  self.train_dataloader
+        self.model,self.optimizer, self.scheduler, self.train_dataloader = accelerator.prepare(
+           self.model,self.optimizer,self.scheduler,  self.train_dataloader
         )
 
+class EmoTrainer:
+    def __init__(self, config, train_dataloader, accelerator):
+        self.config = config
+        self.train_dataloader = train_dataloader
+        self.accelerator = accelerator
 
-    def train_step(self, x_current, x_reference, global_step):
-        if x_current.nelement() == 0:
-            print("🔥 Skipping training step due to empty x_current")
-            return None, None, None, None, None, None
+        # Initialize EMOModel
+        self.model = EMOModel(config)
 
+        # Scheduler
+        self.scheduler = DDPMScheduler(num_train_timesteps=1000)
 
+        # Loss function
+        self.loss_fn = nn.MSELoss()
 
+        # Prepare models and optimizer
+        self.optimizer = optim.AdamW(
+            self.model.backbone_unet.parameters(),
+            lr=config.training.learning_rate,
+        )
+
+        self.model, self.optimizer, self.train_dataloader = accelerator.prepare(
+            self.model, self.optimizer, self.train_dataloader
+        )
+
+    def train_step(self, x_current, x_reference):
         # Sample random timesteps
         batch_size = x_current.shape[0]
-        timesteps = torch.randint(0, self.scheduler.num_train_timesteps, (batch_size,), device=self.device).long()
+        timesteps = torch.randint(
+            0, self.scheduler.num_train_timesteps, (batch_size,), device=self.accelerator.device
+        ).long()
 
-
-        #Forward pass through EMOModel
-        noise_pred, noise = self.model(x_current, x_reference, timesteps, self.scheduler)
+        # Forward pass through EMOModel
+        noise_pred, noise = self.model(x_current, x_reference, timesteps)
 
         # Compute loss
-        loss = F.mse_loss(noise_pred, noise)
+        loss = self.loss_fn(noise_pred, noise)
 
         # Backpropagation
         self.optimizer.zero_grad()
@@ -131,80 +191,42 @@ class EmoTrainer:
 
     def train(self, start_epoch=0):
         global_step = start_epoch * len(self.train_dataloader)
-
+        self.model.train()
 
         for epoch in range(self.config.training.num_epochs):
-             
-
-            self.model.train()
             progress_bar = tqdm(total=len(self.train_dataloader), desc=f"Epoch {epoch+1}/{self.config.training.num_epochs}")
 
-    
-            num_valid_steps = 0
- 
             for batch in self.train_dataloader:
                 source_frames = batch['frames']
                 batch_size, num_frames, channels, height, width = source_frames.shape
 
-                for _ in range(int(1)):
-                    if self.config.training.use_many_xrefs:
-                        ref_indices = range(0, num_frames, self.config.training.every_xref_frames)
-                    else:
-                        ref_indices = [0]
+                # Randomly select reference and current frames
+                ref_idx = torch.randint(0, num_frames, (1,)).item()
+                x_reference = source_frames[:, ref_idx]
 
-                    for ref_idx in ref_indices:
-                        x_reference = source_frames[:, ref_idx]
+                current_idx = torch.randint(0, num_frames, (1,)).item()
+                while current_idx == ref_idx:
+                    current_idx = torch.randint(0, num_frames, (1,)).item()
+                x_current = source_frames[:, current_idx]
 
-                        for current_idx in range(num_frames):
-                            if current_idx == ref_idx:
-                                continue
+                loss = self.train_step(x_current, x_reference)
 
-                            x_current = source_frames[:, current_idx]
+                if self.accelerator.is_main_process and global_step % self.config.logging.log_every == 0:
+                    wandb.log({"loss": loss, "global_step": global_step})
 
-                            results = self.train_step(x_current, x_reference, global_step)
+                global_step += 1
 
-                            if results[0] is not None:
-                                noise_loss  = results
-                                epoch_noise_loss += noise_loss
-                                num_valid_steps += 1
-
-                            else:
-                                print("Skipping step due to error in train_step")
-
-                            if self.accelerator.is_main_process and global_step % self.config.logging.log_every == 0:
-                                wandb.log({
-                                    "epoch_noise_loss": epoch_noise_loss,
-                                    "global_step": global_step
-                                
-                                })
-                                # Log gradient flow for generator and discriminator
-                                # log_grad_flow(self.model.named_parameters(),global_step)
-
-
-                            # if global_step % self.config.logging.sample_every == 0:
-                            #     sample_path = f"recon_step_{global_step}.png"
-                            #     sample_recon(self.model, (x_reconstructed, x_current, x_reference), self.accelerator, sample_path, 
-                            #                  num_samples=self.config.logging.sample_size)
-                                
-                            global_step += 1
-
-                             # Checkpoint saving
-                            if global_step % self.config.training.save_steps == 0:
-                                self.save_checkpoint(epoch)
-
-                # Calculate average losses for the epoch
-                if num_valid_steps > 0:
-                    avg_g_loss = epoch_noise_loss / num_valid_steps
-
+                # Optionally save checkpoints
+                if global_step % self.config.training.save_steps == 0:
+                    self.save_checkpoint(epoch, global_step)
 
                 progress_bar.update(1)
-                progress_bar.set_postfix({"Noise Loss": f"{epoch_noise_loss:.4f}"})
+                progress_bar.set_postfix({"Loss": f"{loss:.4f}"})
 
             progress_bar.close()
-            
 
         # Final model saving
-        self.save_checkpoint(epoch, is_final=True)
+        self.save_checkpoint(epoch, global_step, is_final=True)
 
 
     def save_checkpoint(self, epoch, global_step, is_final=False):

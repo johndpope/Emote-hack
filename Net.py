@@ -2,7 +2,7 @@ import json
 import os
 from math import cos, sin, pi
 from typing import List, Tuple, Dict, Any
-from camera import Camera
+
 import cv2
 import decord
 import librosa
@@ -16,9 +16,8 @@ import torchvision.transforms as transforms
 from decord import VideoReader,AVReader
 from diffusers import AutoencoderKL
 from diffusers.models.modeling_utils import ModelMixin
-from magicanimate.models.controlnet import UNet2DConditionModel
-from magicanimate.models.unet import UNet3DConditionModel
-from magicanimate.models.unet_controlnet import UNet3DConditionModel
+
+
 from moviepy.editor import VideoFileClip
 from PIL import Image
 from torch.utils.data import Dataset
@@ -450,11 +449,7 @@ class EMOModel(ModelMixin):
 
         )
 
-        # Face Region Controller
-        self.face_locator = FaceLocator()
 
-        # Speed Controller
-        self.speed_encoder = SpeedEncoder(config.num_speed_buckets, config.speed_embedding_dim)
 
 
     def forward(self, noisy_latents, timesteps, ref_image, motion_frames, audio_features, head_rotation_speeds):
@@ -829,56 +824,56 @@ class FaceHelper:
     
 
 
-    def calculate_pose(self, face2d):
-            """Calculates head pose from detected facial landmarks using 
-            Perspective-n-Point (PnP) pose computation:
+    # def calculate_pose(self, face2d):
+    #         """Calculates head pose from detected facial landmarks using 
+    #         Perspective-n-Point (PnP) pose computation:
             
-            https://docs.opencv.org/4.6.0/d5/d1f/calib3d_solvePnP.html
-            """
-            # print('Computing head pose from tracking data...')
-            # for idx, time in enumerate(self.face2d['time']):
-            #     # print(time)
-            #     self.pose['time'].append(time)
-            #     self.pose['frame'].append(self.face2d['frame'][idx])
-            #     face2d = self.face2d['key landmark positions'][idx]
-            face3d = [[0, -1.126865, 7.475604], # 1
-                        [-4.445859, 2.663991, 3.173422], # 33
-                        [-2.456206,	-4.342621, 4.283884], # 61
-                        [0, -9.403378, 4.264492], # 199
-                        [4.445859, 2.663991, 3.173422], # 263
-                        [2.456206, -4.342621, 4.283884]] # 291
-            face2d = np.array(face2d, dtype=np.float64)
-            face3d = np.array(face3d, dtype=np.float64)
+    #         https://docs.opencv.org/4.6.0/d5/d1f/calib3d_solvePnP.html
+    #         """
+    #         # print('Computing head pose from tracking data...')
+    #         # for idx, time in enumerate(self.face2d['time']):
+    #         #     # print(time)
+    #         #     self.pose['time'].append(time)
+    #         #     self.pose['frame'].append(self.face2d['frame'][idx])
+    #         #     face2d = self.face2d['key landmark positions'][idx]
+    #         face3d = [[0, -1.126865, 7.475604], # 1
+    #                     [-4.445859, 2.663991, 3.173422], # 33
+    #                     [-2.456206,	-4.342621, 4.283884], # 61
+    #                     [0, -9.403378, 4.264492], # 199
+    #                     [4.445859, 2.663991, 3.173422], # 263
+    #                     [2.456206, -4.342621, 4.283884]] # 291
+    #         face2d = np.array(face2d, dtype=np.float64)
+    #         face3d = np.array(face3d, dtype=np.float64)
 
-            camera = Camera()
-            success, rot_vec, trans_vec = cv2.solvePnP(face3d,
-                                                        face2d,
-                                                        camera.internal_matrix,
-                                                        camera.distortion_matrix,
-                                                        flags=cv2.SOLVEPNP_ITERATIVE)
+    #         camera = Camera()
+    #         success, rot_vec, trans_vec = cv2.solvePnP(face3d,
+    #                                                     face2d,
+    #                                                     camera.internal_matrix,
+    #                                                     camera.distortion_matrix,
+    #                                                     flags=cv2.SOLVEPNP_ITERATIVE)
             
-            rmat = cv2.Rodrigues(rot_vec)[0]
+    #         rmat = cv2.Rodrigues(rot_vec)[0]
 
-            P = np.hstack((rmat, np.zeros((3, 1), dtype=np.float64)))
-            eulerAngles =  cv2.decomposeProjectionMatrix(P)[6]
-            yaw = eulerAngles[1, 0]
-            pitch = eulerAngles[0, 0]
-            roll = eulerAngles[2,0]
+    #         P = np.hstack((rmat, np.zeros((3, 1), dtype=np.float64)))
+    #         eulerAngles =  cv2.decomposeProjectionMatrix(P)[6]
+    #         yaw = eulerAngles[1, 0]
+    #         pitch = eulerAngles[0, 0]
+    #         roll = eulerAngles[2,0]
             
-            if pitch < 0:
-                pitch = - 180 - pitch
-            elif pitch >= 0: 
-                pitch = 180 - pitch
+    #         if pitch < 0:
+    #             pitch = - 180 - pitch
+    #         elif pitch >= 0: 
+    #             pitch = 180 - pitch
             
-            yaw *= -1
-            pitch *= -1
+    #         yaw *= -1
+    #         pitch *= -1
             
-            # if nose2d:
-            #     nose2d = nose2d
-            #     p1 = (int(nose2d[0]), int(nose2d[1]))
-            #     p2 = (int(nose2d[0] - yaw * 2), int(nose2d[1] - pitch * 2))
+    #         # if nose2d:
+    #         #     nose2d = nose2d
+    #         #     p1 = (int(nose2d[0]), int(nose2d[1]))
+    #         #     p2 = (int(nose2d[0] - yaw * 2), int(nose2d[1] - pitch * 2))
             
-            return yaw, pitch, roll 
+    #         return yaw, pitch, roll 
 
     def draw_axis(self, img, yaw, pitch, roll, tdx=None, tdy=None, size = 100):
         # Referenced from HopeNet https://github.com/natanielruiz/deep-head-pose

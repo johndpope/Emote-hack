@@ -1,4 +1,8 @@
-
+data:
+  num_motion_frames: 2
+  sample_size: 256
+  num_speed_buckets: 5
+  speed_embedding_dim: 64
 training:
 
   load_checkpoint: False  # Set this to true when you want to load from a checkpoint
