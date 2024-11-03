@@ -410,96 +410,200 @@ class BackboneNetwork(nn.Module):
    
         return latent_code
     
-class EMOModel(ModelMixin):
-    def __init__(self, vae, image_encoder, config):
+from typing import Optional
+
+class EMOModel(nn.Module):
+    """
+    EMO: Main model implementation following the paper architecture.
+    Integrates StableDiffusion's UNet as the backbone with custom modules
+    for audio-driven portrait animation.
+    """
+    def __init__(
+        self,
+        vae: AutoencoderKL,
+        reference_unet: UNet2DConditionModel,
+        audio_model: Wav2Vec2Model,
+        num_frames: int = 12,
+        motion_frames: int = 4,
+        audio_context_frames: int = 2,
+        speed_buckets: int = 9
+    ):
         super().__init__()
         self.vae = vae
-        self.image_encoder = image_encoder
-
-        # Reference UNet (ReferenceNet)
-        self.reference_unet = UNet2DConditionModel(**config.reference_unet_config)
-
-        # Integrate Wav2Vec Feature Extractor
-        self.wav2vec_feature_extractor = Wav2VecFeatureExtractor(pretrained_model_name="wav2vec_model_name")
-
-        # Denoising UNet (Backbone Network)
-        # Ensure it integrates ReferenceNet and audio features
-        self.denoising_unet = BackboneNetwork(
-            reference_net=self.reference_unet,
-            audio_feature_dim=config["audio_feature_dim"],
-            audio_num_layers=config["audio_num_layers"],
-            sample_size=config.denoising_unet_config.get("sample_size"),
-            in_channels=config.denoising_unet_config.get("in_channels"),
-            out_channels=config.denoising_unet_config.get("out_channels"),
-            down_block_types=config.denoising_unet_config.get("down_block_types"),
-            up_block_types=config.denoising_unet_config.get("up_block_types"),
-            block_out_channels=config.denoising_unet_config.get("block_out_channels"),
-            layers_per_block=config.denoising_unet_config.get("layers_per_block"),
-            cross_attention_dim=config.denoising_unet_config.get("cross_attention_dim"),
-            attention_head_dim=config.denoising_unet_config.get("attention_head_dim"),
-            use_motion_module=True,
-            motion_module_type='simple',
-            motion_module_kwargs=config.denoising_unet_config.get("motion_module_kwargs"),
-            temporal_module_type='simple',  # Specify the desired temporal module type
-            temporal_module_kwargs={
-                "num_attention_heads": 8,
-                "num_transformer_block": 2,
-                "attention_block_types": ("Temporal_Self", "Temporal_Self"),
-                "temporal_position_encoding": True,
-            }
-
+        self.reference_unet = reference_unet
+        self.audio_model = audio_model
+        
+        # Dimensions from SD UNet
+        self.latent_channels = reference_unet.config.in_channels
+        feature_channels = reference_unet.config.block_out_channels[-1]
+        
+        # Core modules following paper architecture
+        self.reference_attention = ReferenceAttentionLayer(
+            channels=feature_channels
+        )
+        
+        self.audio_attention = AudioAttentionLayers(
+            feature_dim=768,  # wav2vec feature dimension
+            num_context_frames=audio_context_frames
+        )
+        
+        self.temporal_module = TemporalModule(
+            channels=feature_channels,
+            num_frames=num_frames
+        )
+        
+        self.speed_controller = SpeedController(
+            num_buckets=speed_buckets,
+            embedding_dim=feature_channels
+        )
+        
+        self.face_locator = FaceRegionController(
+            in_channels=3,
+            out_channels=feature_channels
         )
 
-        # Face Region Controller
-        self.face_locator = FaceLocator()
-
-        # Speed Controller
-        self.speed_encoder = SpeedEncoder(config.num_speed_buckets, config.speed_embedding_dim)
-
-
-    def forward(self, noisy_latents, timesteps, ref_image, motion_frames, audio_features, head_rotation_speeds):
-        batch_size, num_frames, _, height, width = noisy_latents.shape
-
-        # Encode reference image
-        ref_image_latents = self.vae.encode(ref_image).latent_dist.sample()
-        ref_image_latents = ref_image_latents * 0.18215
-        ref_image_embeds = self.image_encoder(ref_image)
-
-        # Encode motion frames
-        motion_frames_latents = self.vae.encode(motion_frames).latent_dist.sample()
-        motion_frames_latents = motion_frames_latents * 0.18215
-        motion_frames_embeds = self.image_encoder(motion_frames)
-
-        # Process audio input through Wav2Vec feature extractor
-        # Get audio embeddings from the extracted features
-        audio_embeds = self.wav2vec_feature_extractor(audio_features)
-
-        # Compute face region mask
-        face_region_mask = self.face_locator(ref_image)
-        face_region_mask = face_region_mask.unsqueeze(1).repeat(1, num_frames, 1, 1, 1)
-
-        # Forward pass through Reference UNet
-        ref_embeds = self.reference_unet(ref_image_latents, timesteps, ref_image_embeds).sample
-
-        # Get speed embeddings from the head rotation speeds
-        speed_embeddings = self.speed_encoder(head_rotation_speeds)
-
-        # Forward pass through Denoising UNet (Backbone Network)
-        # The modified latent code is now used in the forward pass of the Denoising UNet
-        model_pred = self.denoising_unet(
-            latent_code=noisy_latents,
-            timesteps=timesteps,
-            reference_features=ref_embeds,
-            audio_features=audio_embeds,
-            motion_fea=motion_frames_embeds,
-            speed_fea=speed_embeddings,
-            pose_cond_fea=face_region_mask,
-        ).sample
-
-        return model_pred
+    def encode_reference(self, reference_image: torch.Tensor) -> torch.Tensor:
+        """Encodes reference image through VAE and ReferenceNet."""
+        with torch.no_grad():
+            # Encode to latent space using SD VAE
+            latents = self.vae.encode(reference_image).latent_dist.sample()
+            latents = latents * 0.18215
         
+        # Extract reference features through SD UNet
+        reference_features = self.reference_unet(latents).sample
+        return reference_features
 
+    def forward(
+        self,
+        noisy_latents: torch.Tensor,
+        timesteps: torch.Tensor,
+        reference_image: torch.Tensor,
+        audio_features: torch.Tensor,
+        motion_frames: Optional[torch.Tensor] = None,
+        head_speeds: Optional[torch.Tensor] = None,
+        face_mask: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        """
+        Forward pass following the paper's architecture:
+        1. Extract reference features
+        2. Apply reference attention
+        3. Integrate audio features
+        4. Apply temporal consistency
+        5. Add speed and face region control
+        """
+        # Get reference features
+        reference_features = self.encode_reference(reference_image)
+        
+        # Apply reference attention to maintain identity
+        features = self.reference_attention(noisy_latents, reference_features)
+        
+        # Integrate audio features
+        if audio_features is not None:
+            features = self.audio_attention(features, audio_features)
+            
+        # Apply temporal consistency
+        if motion_frames is not None:
+            features = self.temporal_module(features, motion_frames)
+            
+        # Add speed control if provided
+        if head_speeds is not None:
+            speed_embedding = self.speed_controller(head_speeds)
+            features = features + speed_embedding
+            
+        # Add face region control if provided
+        if face_mask is not None:
+            face_features = self.face_locator(face_mask)
+            features = features + face_features
+            
+        return features
 
+class TemporalModule(nn.Module):
+    """
+    Temporal consistency module based on AnimateDiff architecture.
+    """
+    def __init__(self, channels: int, num_frames: int):
+        super().__init__()
+        self.temporal_conv = nn.Conv3d(
+            channels, channels,
+            kernel_size=(3, 1, 1),
+            padding=(1, 0, 0)
+        )
+        self.temporal_attention = nn.MultiheadAttention(
+            channels, 
+            num_heads=8,
+            batch_first=True
+        )
+
+    def forward(self, x: torch.Tensor, motion_frames: torch.Tensor) -> torch.Tensor:
+        # Add temporal dimension
+        b, c, h, w = x.shape
+        x = x.view(b, -1, c, h, w)
+        
+        # Apply temporal convolution
+        x = self.temporal_conv(x)
+        
+        # Apply temporal attention
+        x = x.permute(0, 2, 1, 3, 4)
+        x = x.flatten(2)
+        x, _ = self.temporal_attention(x, x, x)
+        x = x.view(b, c, -1, h, w)
+        x = x.permute(0, 2, 1, 3, 4)
+        
+        return x.reshape(b, c, h, w)
+
+class SpeedController(nn.Module):
+    """
+    Controls head motion speed using bucketed embeddings.
+    """
+    def __init__(self, num_buckets: int, embedding_dim: int):
+        super().__init__()
+        self.num_buckets = num_buckets
+        self.speed_embed = nn.Embedding(num_buckets, embedding_dim)
+        self.speed_mlp = nn.Sequential(
+            nn.Linear(embedding_dim, embedding_dim),
+            nn.ReLU(),
+            nn.Linear(embedding_dim, embedding_dim)
+        )
+        
+        # Initialize bucket centers and radii as in paper
+        self.register_buffer(
+            'centers',
+            torch.linspace(-1.0, 1.0, num_buckets)
+        )
+        self.register_buffer(
+            'radii',
+            torch.ones(num_buckets) * 0.1
+        )
+
+    def forward(self, speeds: torch.Tensor) -> torch.Tensor:
+        # Convert speeds to bucket indices
+        bucket_indices = self.speed_to_bucket(speeds)
+        
+        # Get embeddings and process through MLP
+        embeddings = self.speed_embed(bucket_indices)
+        return self.speed_mlp(embeddings)
+    
+    def speed_to_bucket(self, speed: torch.Tensor) -> torch.Tensor:
+        """Maps speed values to nearest bucket indices."""
+        dists = torch.abs(speed.unsqueeze(-1) - self.centers)
+        return torch.argmin(dists, dim=-1)
+
+class FaceRegionController(nn.Module):
+    """
+    Controls face region generation using spatial attention.
+    """
+    def __init__(self, in_channels: int, out_channels: int):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, 32, 3, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
+        self.conv3 = nn.Conv2d(64, out_channels, 3, padding=1)
+        
+    def forward(self, mask: torch.Tensor) -> torch.Tensor:
+        x = F.relu(self.conv1(mask))
+        x = F.relu(self.conv2(x))
+        x = self.conv3(x)
+        return x
+    
 class Wav2VecFeatureExtractor:
     def __init__(self, model_name='facebook/wav2vec2-base-960h', device='cpu'):
         self.model_name = model_name
@@ -1340,3 +1444,69 @@ class EMODataset(Dataset):
 
         return sample
 
+
+
+class MotionModule(nn.Module):
+    """
+    Motion Module as described in EMO paper for handling temporal consistency
+    """
+    def __init__(self, in_channels, temporal_length):
+        super().__init__()
+        self.temporal_conv = nn.Conv3d(
+            in_channels=in_channels,
+            out_channels=in_channels,
+            kernel_size=(temporal_length, 1, 1),
+            padding=(temporal_length // 2, 0, 0)
+        )
+        self.temporal_attention = TemporalAttention(in_channels)
+
+    def forward(self, x):
+        # x shape: [B, C, T, H, W]
+        identity = x
+        x = self.temporal_conv(x)
+        x = self.temporal_attention(x)
+        return x + identity
+
+class TemporalAttention(nn.Module):
+    """
+    Temporal attention mechanism for correlating frames across time
+    """
+    def __init__(self, channels):
+        super().__init__()
+        self.norm = nn.LayerNorm(channels)
+        self.attention = nn.MultiheadAttention(channels, num_heads=8)
+        
+    def forward(self, x):
+        B, C, T, H, W = x.shape
+        x = x.permute(2, 0, 1, 3, 4).reshape(T, B, C*H*W)
+        x = self.norm(x)
+        attn_out, _ = self.attention(x, x, x)
+        x = attn_out.reshape(T, B, C, H, W).permute(1, 2, 0, 3, 4)
+        return x
+
+class ReferenceAttention(nn.Module):
+    """
+    Reference attention for maintaining identity consistency
+    """
+    def __init__(self, channels):
+        super().__init__()
+        self.norm = nn.LayerNorm(channels)
+        self.q_proj = nn.Linear(channels, channels)
+        self.k_proj = nn.Linear(channels, channels)
+        self.v_proj = nn.Linear(channels, channels)
+        self.scale = channels ** -0.5
+
+    def forward(self, x, ref):
+        B, C, H, W = x.shape
+        x_flat = x.flatten(2).permute(0, 2, 1)  # [B, H*W, C]
+        ref_flat = ref.flatten(2).permute(0, 2, 1)  # [B, H*W, C]
+        
+        q = self.q_proj(self.norm(x_flat))
+        k = self.k_proj(self.norm(ref_flat))
+        v = self.v_proj(ref_flat)
+
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = F.softmax(attn, dim=-1)
+        out = attn @ v
+        
+        return out.permute(0, 2, 1).reshape(B, C, H, W)

@@ -1,95 +1,15 @@
-data:
-  train_bs: 1
-  train_width: 512 
-  train_height: 512 
-  sample_margin: 30  
-  sample_rate: 4 
-  n_sample_frames: 1
-  n_motion_frames: 2
 training:
-  batch_size: 2
-  num_workers: 0
-  learning_rate: 1.0e-5
-  num_epochs: 2
-  use_gpu_video_tensor: True
-  prev_frames: 2  # Add this line to specify the number of previous frames to consider
-  video_data_dir: '/home/oem/Downloads/CelebV-HQ/celebvhq/35666'
+  batch_size: 4
+  num_epochs: 100
+  learning_rate: 1e-4
+  num_workers: 4
+  log_every: 100
+  save_every: 10
+  checkpoint_dir: "checkpoints/stage1"
 
-solver:
-  gradient_accumulation_steps: 1
-  mixed_precision: 'fp16'
-  enable_xformers_memory_efficient_attention: True 
-  gradient_checkpointing: False 
-  max_train_steps: 30000
-  max_grad_norm: 1.0
-  # lr
-  learning_rate: 1.0e-5
-  scale_lr: False 
-  lr_warmup_steps: 1
-  lr_scheduler: 'constant'
-
-  # optimizer
-  use_8bit_adam: True 
-  adam_beta1: 0.9
-  adam_beta2: 0.999
-  adam_weight_decay:  1.0e-2
-  adam_epsilon: 1.0e-8
-
-val:
-  validation_steps: 200
-
-
-noise_scheduler_kwargs:
-  num_train_timesteps: 1000
-  beta_start:          0.00085
-  beta_end:            0.012
-  beta_schedule:       "scaled_linear"
-  steps_offset:        1
-  clip_sample:         false
-
-
-pretrained_base_model_path: "./pretrained_weights/stable-diffusion/"
-base_model_path: './pretrained_weights/sd-image-variations-diffusers'
-vae_model_path: './pretrained_weights/sd-vae-ft-mse'
-image_encoder_path: './pretrained_weights/sd-image-variations-diffusers/image_encoder'
-controlnet_openpose_path: './pretrained_weights/control_v11p_sd15_openpose/diffusion_pytorch_model.bin'
-motion_module_path: "../ckpts/motion_module.pth"
-
-weight_dtype: 'fp16'  # [fp16, fp32]
-uncond_ratio: 0.1
-noise_offset: 0.05
-snr_gamma: 5.0
-enable_zero_snr: True 
-
-
-seed: 12580
-resume_from_checkpoint: ''
-checkpointing_steps: 1000
-save_model_epoch_interval: 5
-exp_name: 'stage1'
-output_dir: './exp_output'  
-num_speed_buckets: 9
-speed_embedding_dim: 64 
-reference_unet_config: # assign from unet-config 
-denoising_unet_config:
-
-
-
-model:
-
-  latent_dim: 256
-  num_heads: 8
-  ff_dim: 1024
-  dropout: 0.1
-  
-  feature_dim: 512
-  num_layers: 4
-  audio_feature_dim: 128
-  audio_num_layers: 2
-  temporal_module:
-    type: 'VanillaTemporalModule'
-    kwargs:
-      num_attention_heads: 8
-      num_transformer_block: 2
-      attention_block_types: ['Temporal_Self', 'Temporal_Self']
-      temporal_position_encoding: True
+data:
+  data_dir: "data"
+  video_dir: "videos"
+  json_file: "metadata.json"
+  train_width: 512
+  train_height: 512
